@@ -1,0 +1,50 @@
+-- Template para nova tabela escopada por organization.
+-- Copie esse arquivo (sem .example), renomeie pra YYYYMMDDHHmmss_<nome_da_feature>.sql,
+-- e troque TODOS os "MY_TABLE" pelo nome real (snake_case, plural).
+
+create table public.MY_TABLE (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  -- adicione suas colunas aqui:
+  name text not null,
+  -- ...
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index MY_TABLE_organization_id_idx on public.MY_TABLE(organization_id);
+
+-- RLS — habilitar E forçar (force = postgres role também respeita policies)
+alter table public.MY_TABLE enable row level security;
+alter table public.MY_TABLE force row level security;
+
+create policy "members read"
+  on public.MY_TABLE for select
+  using (public.is_org_member(organization_id));
+
+create policy "members insert"
+  on public.MY_TABLE for insert
+  with check (public.is_org_member(organization_id) and auth.uid() = created_by);
+
+create policy "members update"
+  on public.MY_TABLE for update
+  using (public.is_org_member(organization_id))
+  with check (public.is_org_member(organization_id));
+
+create policy "admins delete"
+  on public.MY_TABLE for delete
+  using (public.has_org_role(organization_id, array['owner', 'admin']::public.org_role[]));
+
+-- Trigger pra updated_at
+create trigger MY_TABLE_set_updated_at
+  before update on public.MY_TABLE
+  for each row execute function public.set_updated_at();
+
+-- OBRIGATÓRIO: trigger que congela organization_id e created_by em UPDATEs.
+-- Sem isso, member malicioso pode mudar org_id/created_by da própria linha e
+-- vazar dados pra outra org. A função `freeze_org_and_creator` já existe na
+-- migration de bootstrap.
+create trigger MY_TABLE_freeze_org_and_creator
+  before update on public.MY_TABLE
+  for each row execute function public.freeze_org_and_creator();

@@ -1,0 +1,28 @@
+services:
+  app:
+    build: .
+    container_name: template-alunos
+    ports:
+      - "3000:3000"
+    # DEV ONLY: em prod, prefira secrets do orchestrator (EasyPanel/K8s UI).
+    env_file:
+      - .env.local
+    restart: unless-stopped
+    # M14: container hardening
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /app/.next/cache:size=128m,mode=1777
+    # L-8: 1024m é o mínimo seguro pra Next 16 + RSC + Recharts sob tráfego.
+    mem_limit: 1024m
+    pids_limit: 256
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

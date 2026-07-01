@@ -1,0 +1,71 @@
+# Arquivos que Claude Code NÃO deve abrir/escanear (economia de tokens + clareza).
+# Mesma sintaxe de .gitignore.
+
+# Dependências (gigantes, irrelevantes)
+node_modules/
+.pnp/
+.pnp.*
+.yarn/install-state.gz
+
+# Builds gerados
+.next/
+out/
+build/
+dist/
+.turbo/
+.vercel/
+
+# Cache de testes / lint
+coverage/
+.cache/
+.eslintcache
+.biome-cache/
+
+# Lock files (grandes, raramente úteis pra leitura)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Types gerados (~2000 linhas, regenerado via npm run types)
+types/supabase.ts
+
+# Assets binários
+public/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.svg
+*.ico
+*.woff
+*.woff2
+*.ttf
+*.eot
+*.mp4
+*.webm
+*.pdf
+
+# Migrations já aplicadas (Claude lê o schema atual via types/supabase.ts ou MCP)
+# Mantém pra leitura quando explicitamente necessário — só não escaneia automaticamente
+# supabase/migrations/  # comentado: aluno pode querer ver pra reference
+
+# Logs e temporários
+*.log
+.DS_Store
+.env*.local
+.env.production
+.env.development
+
+# Tests cache
+.vitest/
+vitest.config.*.timestamp-*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Outros
+.playwright-mcp/

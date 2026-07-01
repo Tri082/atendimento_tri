@@ -1,0 +1,53 @@
+import Link from "next/link";
+import { getCompanyDeals } from "@/lib/companies/queries";
+import { STAGE_LABELS } from "@/lib/deals/stages";
+
+type Props = { orgSlug: string; orgId: string; companyId: string };
+
+function formatBrl(value: number | null): string {
+  if (value === null) return "—";
+  return value.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 0,
+  });
+}
+
+export async function CompanyDealsPanel({ orgSlug, orgId, companyId }: Props) {
+  const deals = await getCompanyDeals(orgId, companyId);
+  return (
+    <div className="space-y-3">
+      {deals.length === 0 ? (
+        <p className="text-muted-foreground text-sm">Nenhum deal pra essa empresa ainda.</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {deals.map((d) => (
+            <li
+              key={d.id}
+              className="flex items-center justify-between gap-2 rounded-md border border-border/60 px-3 py-2"
+            >
+              <div className="min-w-0">
+                <Link
+                  href={`/app/${orgSlug}/deals/${d.id}`}
+                  className="truncate font-medium text-sm hover:underline"
+                >
+                  {d.name}
+                </Link>
+                <p className="text-muted-foreground text-xs">
+                  {STAGE_LABELS[d.stage]} · {formatBrl(d.value)}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="text-muted-foreground text-xs">
+        Pra criar um deal, vá em{" "}
+        <Link href={`/app/${orgSlug}/deals`} className="underline">
+          Deals
+        </Link>
+        .
+      </p>
+    </div>
+  );
+}

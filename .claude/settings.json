@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *:*)",
+      "Bash(npx tsc *:*)",
+      "Bash(npx biome *:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(rm -rf .next:*)",
+      "Bash(grep:*)",
+      "Bash(lsof:*)",
+      "Bash(ls:*)"
+    ]
+  }
+}
