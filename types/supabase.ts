@@ -752,6 +752,57 @@ export type Database = {
           },
         ]
       }
+      conversation_onboarding: {
+        Row: {
+          answers: Json
+          completed_at: string | null
+          conversation_id: string
+          created_at: string
+          current_step: string
+          id: string
+          is_first_order: boolean | null
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          answers?: Json
+          completed_at?: string | null
+          conversation_id: string
+          created_at?: string
+          current_step?: string
+          id?: string
+          is_first_order?: boolean | null
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          answers?: Json
+          completed_at?: string | null
+          conversation_id?: string
+          created_at?: string
+          current_step?: string
+          id?: string
+          is_first_order?: boolean | null
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_onboarding_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: true
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversation_onboarding_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       conversation_tag_links: {
         Row: {
           applied_at: string
