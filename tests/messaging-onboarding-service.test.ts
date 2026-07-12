@@ -45,6 +45,9 @@ function makeSupabase() {
       },
       select: () => ({
         eq: () => ({
+          eq: () => ({
+            maybeSingle: async () => ({ data: { contact_id: "contact-1" }, error: null }),
+          }),
           maybeSingle: async () => ({ data: { contact_id: "contact-1" }, error: null }),
         }),
       }),

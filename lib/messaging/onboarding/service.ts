@@ -112,9 +112,18 @@ async function completeOnboarding(params: {
       answers: answers as unknown as Database["public"]["Tables"]["conversation_onboarding"]["Update"]["answers"],
       completed_at: new Date().toISOString(),
     })
-    .eq("conversation_id", conversationId);
+    .eq("conversation_id", conversationId)
+    .eq("organization_id", orgId);
 
-  await supabase.from("conversations").update({ handled_by: "human" }).eq("id", conversationId);
+  const { error: handoffError } = await supabase
+    .from("conversations")
+    .update({ handled_by: "human" })
+    .eq("id", conversationId)
+    .eq("organization_id", orgId);
+
+  if (handoffError) {
+    logError("onboarding.handoff-update", handoffError);
+  }
 
   // Atualiza o nome do contato SE já existe um contato vinculado (por
   // telefone). Não cria contato novo aqui — fora de escopo desta primeira
@@ -124,13 +133,18 @@ async function completeOnboarding(params: {
       .from("conversations")
       .select("contact_id")
       .eq("id", conversationId)
+      .eq("organization_id", orgId)
       .maybeSingle();
     if (conv?.contact_id) {
-      await supabase
+      const { error: renameError } = await supabase
         .from("contacts")
         .update({ name: answers.name })
         .eq("id", conv.contact_id)
         .eq("organization_id", orgId);
+
+      if (renameError) {
+        logError("onboarding.contact-rename", renameError);
+      }
     }
   }
 
@@ -158,7 +172,7 @@ async function completeOnboarding(params: {
     answers.repeatLayoutChange ? `Layout do último pedido: ${answers.repeatLayoutChange}` : null,
   ].filter((line): line is string => Boolean(line));
 
-  await supabase.from("messages").insert({
+  const { error: summaryError } = await supabase.from("messages").insert({
     organization_id: orgId,
     conversation_id: conversationId,
     direction: "outbound",
@@ -167,6 +181,10 @@ async function completeOnboarding(params: {
     status: "sent",
     sent_at: new Date().toISOString(),
   });
+
+  if (summaryError) {
+    logError("onboarding.summary-insert", summaryError);
+  }
 }
 
 /** Roda a cada mensagem inbound enquanto o onboarding não terminou. Resolve
@@ -247,13 +265,18 @@ export async function advanceOnboardingFromMessage(params: {
     return;
   }
 
-  await supabase
+  const { error: advanceError } = await supabase
     .from("conversation_onboarding")
     .update({
       current_step: result.nextStepId,
       answers: result.answers as unknown as Database["public"]["Tables"]["conversation_onboarding"]["Update"]["answers"],
     })
-    .eq("conversation_id", conversationId);
+    .eq("conversation_id", conversationId)
+    .eq("organization_id", orgId);
+
+  if (advanceError) {
+    logError("onboarding.advance-update", advanceError);
+  }
 
   if (result.handoff) {
     await completeOnboarding({ supabase, orgId, conversationId, answers: result.answers });
