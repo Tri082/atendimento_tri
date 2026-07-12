@@ -311,3 +311,18 @@ Passos:
 9. Anexar PDF → chega no WhatsApp
 10. Conectar agente ao canal em `/settings/agents/[id]?tab=config` → pergunta → resposta automática
 11. Desconectar canal via UI → confirmar row removida, instância no Evolution intacta
+
+### Smoke test — Onboarding de qualificação (roteiro + handoff)
+
+Pré: canal Evolution conectado e agente ativo vinculado (ver Smoke test Sub-G acima).
+
+1. De um número que NUNCA conversou com essa instância, mande "Oi" pro número conectado.
+2. Confirme que a resposta é a saudação fixa da Trícia pedindo o nome (não uma resposta livre do LLM).
+3. Responda com um nome. Confirme que a próxima pergunta ("É o seu primeiro pedido conosco?") chega como **botões reais** do WhatsApp (não texto numerado) — se chegar como texto numerado, o `sendButtons` da Evolution falhou silenciosamente; ver logs do servidor por `messaging.send-buttons-fallback`.
+4. Toque no botão "Sim". Confirme que a pergunta "Como você chegou até a gente?" chega como **texto numerado** (5 opções, acima do limite de botão) e responda digitando o número ou o nome da opção livremente (ex: "foi o instagram") — confirme que o roteiro reconhece e avança mesmo sem bater exatamente com o texto da opção.
+5. Se escolher "Indicação", confirme que pergunta quem indicou antes de seguir pro uso das camisas.
+6. Complete até a última pergunta do bloco I (arquivos/vetorização). Confirme que, ao responder, a conversa:
+   - aparece atribuída a um atendente humano em `/inbox` (campo assignee)
+   - tem uma mensagem de sistema com o resumo das respostas
+7. Mande outra mensagem qualquer (ex: "vocês entregam pra outro estado?"). Confirme que a Trícia responde SE a resposta estiver na base de conhecimento do agente, ou "vou verificar com nossa equipe" caso não esteja — e que ela NÃO volta a fazer perguntas do roteiro nem fala de preço/prazo.
+8. Repita o teste do passo 1-2 com um número que JÁ tem pedido anterior simulado (insira uma conversation antiga pro mesmo `external_thread_id` direto no Supabase Studio antes do teste, se não houver forma pela UI) — confirme que cai no bloco II (pergunta única sobre layout igual/diferente) e vai direto pro handoff.
