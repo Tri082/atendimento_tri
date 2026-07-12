@@ -214,6 +214,12 @@ export async function processInboundMessage(
 
   let conversationId: string;
   let convAgentStatus: string = "idle";
+  // Distingue "conversa já existia antes desta chamada" de "conversa
+  // acabou de nascer agora" — crítico pro gate de onboarding logo abaixo:
+  // sem essa distinção, QUALQUER conversa pré-existente sem linha em
+  // `conversation_onboarding` (ex: toda conversa criada antes desta feature
+  // ser deployada) seria sequestrada pro roteiro fixo na próxima mensagem.
+  let isNewConversation = false;
 
   // Nome que o provider passa (pushName WhatsApp etc.) — usado pra display
   // até o contato ser cadastrado no CRM. SÓ aceita quando `!fromMe` —
@@ -281,6 +287,10 @@ export async function processInboundMessage(
         }
         conversationId = raced.id;
         convAgentStatus = raced.agent_status ?? "idle";
+        // Perdeu a corrida de INSERT pra um webhook duplicado concorrente,
+        // mas do ponto de vista do cliente essa é a primeira mensagem dessa
+        // thread — ainda conta como conversa nova pro gate de onboarding.
+        isNewConversation = true;
       } else {
         logError("messaging.inbound", convErr);
         return;
@@ -288,6 +298,7 @@ export async function processInboundMessage(
     } else if (newConv) {
       conversationId = newConv.id;
       convAgentStatus = newConv.agent_status ?? "idle";
+      isNewConversation = true;
 
       // Sub-H: emit conversation.created (idempotente via conversationId)
       {
@@ -447,7 +458,11 @@ export async function processInboundMessage(
       .eq("organization_id", channel.organization_id)
       .maybeSingle();
 
-    if (!onboardingRow) {
+    if (!onboardingRow && isNewConversation) {
+      // Só dispara o roteiro fixo pra conversas que de fato nasceram agora.
+      // Conversa pré-existente sem linha de onboarding (ex: criada antes
+      // desta feature ser deployada) NÃO deve ser sequestrada pro roteiro —
+      // cai no fluxo normal (agente livre) mais abaixo.
       onboardingActive = true;
       after(() =>
         startOnboarding({
@@ -456,7 +471,7 @@ export async function processInboundMessage(
           conversationId,
         }),
       );
-    } else if (onboardingRow.current_step !== "completed") {
+    } else if (onboardingRow && onboardingRow.current_step !== "completed") {
       onboardingActive = true;
       after(() =>
         advanceOnboardingFromMessage({

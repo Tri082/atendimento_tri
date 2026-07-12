@@ -32,6 +32,22 @@ describe("matchChoiceByText", () => {
   test("retorna null se não achar nada", () => {
     expect(matchChoiceByText(OPTIONS, "não sei explicar")).toBeNull();
   });
+
+  test("resolve resposta numérica bare ('1') pra primeira opção (steps >3 opções viram texto numerado)", () => {
+    expect(matchChoiceByText(OPTIONS, "1")).toBe("instagram");
+  });
+
+  test("resolve número no meio do range ('3') pra terceira opção", () => {
+    expect(matchChoiceByText(OPTIONS, "3")).toBe("site");
+  });
+
+  test("número fora do range (maior que options.length) retorna null", () => {
+    expect(matchChoiceByText(OPTIONS, "99")).toBeNull();
+  });
+
+  test("número fora do range ('0') retorna null", () => {
+    expect(matchChoiceByText(OPTIONS, "0")).toBeNull();
+  });
 });
 
 describe("matchChoiceByText (first_order_check edge cases)", () => {

@@ -105,7 +105,34 @@ async function completeOnboarding(params: {
 }): Promise<void> {
   const { supabase, orgId, conversationId, answers } = params;
 
-  await supabase
+  // Busca contact_id + handled_by numa query só — reusa pro check de
+  // idempotência abaixo E pro rename de contato mais adiante (evita 2
+  // SELECTs na mesma tabela pro mesmo row).
+  const { data: conv, error: convFetchError } = await supabase
+    .from("conversations")
+    .select("contact_id, handled_by")
+    .eq("id", conversationId)
+    .eq("organization_id", orgId)
+    .maybeSingle();
+
+  if (convFetchError) {
+    logError("onboarding.complete-fetch-conversation", convFetchError);
+  }
+
+  // Idempotência: se o handoff já rodou antes (ex: a primeira tentativa
+  // marcou `conversations.handled_by='human'` mas falhou/perdeu o retry em
+  // algum ponto anterior, e uma mensagem seguinte re-entrou no step final),
+  // não reexecuta assign + resumo — evita atribuição round-robin duplicada
+  // e mensagem de resumo repetida.
+  if (conv?.handled_by === "human") {
+    logError(
+      "onboarding.complete-duplicate",
+      new Error(`Handoff já concluído pra conversation ${conversationId} — ignorando chamada duplicada de completeOnboarding.`),
+    );
+    return;
+  }
+
+  const { error: stepUpdateError } = await supabase
     .from("conversation_onboarding")
     .update({
       current_step: "completed",
@@ -114,6 +141,10 @@ async function completeOnboarding(params: {
     })
     .eq("conversation_id", conversationId)
     .eq("organization_id", orgId);
+
+  if (stepUpdateError) {
+    logError("onboarding.complete-update", stepUpdateError);
+  }
 
   const { error: handoffError } = await supabase
     .from("conversations")
@@ -128,23 +159,15 @@ async function completeOnboarding(params: {
   // Atualiza o nome do contato SE já existe um contato vinculado (por
   // telefone). Não cria contato novo aqui — fora de escopo desta primeira
   // versão (ver spec, seção "Fora de escopo").
-  if (answers.name) {
-    const { data: conv } = await supabase
-      .from("conversations")
-      .select("contact_id")
-      .eq("id", conversationId)
-      .eq("organization_id", orgId)
-      .maybeSingle();
-    if (conv?.contact_id) {
-      const { error: renameError } = await supabase
-        .from("contacts")
-        .update({ name: answers.name })
-        .eq("id", conv.contact_id)
-        .eq("organization_id", orgId);
+  if (answers.name && conv?.contact_id) {
+    const { error: renameError } = await supabase
+      .from("contacts")
+      .update({ name: answers.name })
+      .eq("id", conv.contact_id)
+      .eq("organization_id", orgId);
 
-      if (renameError) {
-        logError("onboarding.contact-rename", renameError);
-      }
+    if (renameError) {
+      logError("onboarding.contact-rename", renameError);
     }
   }
 

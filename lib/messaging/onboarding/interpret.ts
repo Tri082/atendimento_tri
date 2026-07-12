@@ -17,6 +17,20 @@ export function matchChoiceByText(
   options: OnboardingChoiceOption[],
   text: string,
 ): string | null {
+  const trimmed = text.trim();
+
+  // Steps com mais de MAX_BUTTON_OPTIONS opções (ver script.ts) viram texto
+  // numerado ("1) Instagram\n2) Indicação\n...") em vez de botões reais —
+  // cliente respondendo só o número ("1", "2"...) é um sinal determinístico
+  // e inequívoco de qual opção ele quer, na mesma ordem 1-indexed em que
+  // service.ts's sendStepQuestion renderizou a lista. Checa isso ANTES do
+  // match textual pra não deixar essa resposta óbvia cair no fallback LLM.
+  const asNumber = Number(trimmed);
+  if (trimmed !== "" && Number.isInteger(asNumber) && asNumber >= 1 && asNumber <= options.length) {
+    const byPosition = options[asNumber - 1];
+    if (byPosition) return byPosition.id;
+  }
+
   const normalized = normalize(text);
   const direct = options.find(
     (o) => normalize(o.id) === normalized || normalize(o.label) === normalized,

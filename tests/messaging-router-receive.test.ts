@@ -279,6 +279,25 @@ describe("processInboundMessage", () => {
     expect(startOnboarding).not.toHaveBeenCalled();
   });
 
+  test("conversa PRÉ-EXISTENTE sem linha de onboarding NÃO dispara startOnboarding (não sequestra conversa antiga)", async () => {
+    const { sb } = buildSupabase({
+      channelByExternal: {
+        id: CHANNEL_ID,
+        type: "whatsapp_cloud",
+        organization_id: ORG_ID,
+      },
+      existingConversation: { id: CONV_ID, organization_id: ORG_ID },
+      insertMessageResult: { id: "msg-1" },
+      onboardingRow: null,
+    });
+    mockedCreate.mockReturnValue(sb);
+
+    await processInboundMessage("whatsapp_cloud", makeEvent());
+
+    expect(startOnboarding).not.toHaveBeenCalled();
+    expect(advanceOnboardingFromMessage).not.toHaveBeenCalled();
+  });
+
   test("onboarding completed segue fluxo normal (não chama nenhuma função de onboarding)", async () => {
     const { sb } = buildSupabase({
       channelByExternal: {

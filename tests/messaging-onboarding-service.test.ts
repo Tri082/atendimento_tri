@@ -21,10 +21,11 @@ import { advanceOnboardingFromMessage, startOnboarding } from "@/lib/messaging/o
 const ORG_ID = "org-1";
 const CONV_ID = "conv-1";
 
-function makeSupabase() {
+function makeSupabase(opts?: { handledBy?: string | null }) {
   const inserts: Record<string, unknown[]> = {};
   const updates: Record<string, unknown[]> = {};
   const upserts: Record<string, unknown[]> = {};
+  const handledBy = opts?.handledBy ?? null;
 
   const sb = {
     from: (table: string) => ({
@@ -46,9 +47,15 @@ function makeSupabase() {
       select: () => ({
         eq: () => ({
           eq: () => ({
-            maybeSingle: async () => ({ data: { contact_id: "contact-1" }, error: null }),
+            maybeSingle: async () => ({
+              data: { contact_id: "contact-1", handled_by: handledBy },
+              error: null,
+            }),
           }),
-          maybeSingle: async () => ({ data: { contact_id: "contact-1" }, error: null }),
+          maybeSingle: async () => ({
+            data: { contact_id: "contact-1", handled_by: handledBy },
+            error: null,
+          }),
         }),
       }),
     }),
@@ -211,5 +218,26 @@ describe("advanceOnboardingFromMessage", () => {
       { target: "conversation", target_id: CONV_ID, assignee: "round_robin" },
       expect.objectContaining({ orgId: ORG_ID }),
     );
+  });
+
+  test("step final (handoff=true) mas conversation JÁ está handled_by=human (handoff duplicado): não reatribui nem reposta o resumo", async () => {
+    const { sb, inserts, updates } = makeSupabase({ handledBy: "human" });
+
+    await advanceOnboardingFromMessage({
+      supabase: sb,
+      orgId: ORG_ID,
+      conversationId: CONV_ID,
+      agentId: "agent-1",
+      onboarding: { currentStepId: "files_status", answers: { name: "Maria" } },
+      messageText: null,
+      buttonReplyId: "sim_vetorizado",
+    });
+
+    expect(assignOwnerAction.execute).not.toHaveBeenCalled();
+    // Nenhuma mensagem de resumo (system) inserida — handoff já tinha rodado antes.
+    expect(inserts.messages).toBeUndefined();
+    // Não reescreve handled_by nem contact rename de novo.
+    expect(updates.conversations).toBeUndefined();
+    expect(updates.contacts).toBeUndefined();
   });
 });
