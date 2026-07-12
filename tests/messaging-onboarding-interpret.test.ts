@@ -21,12 +21,39 @@ describe("matchChoiceByText", () => {
     expect(matchChoiceByText(OPTIONS, "INSTAGRAM")).toBe("instagram");
   });
 
-  test("casa por substring", () => {
+  test("casa por substring com word boundaries (não substring bruta)", () => {
     expect(matchChoiceByText(OPTIONS, "foi pelo site de vocês")).toBe("site");
+  });
+
+  test("não casa 'site' em 'necessitei' (substring falso)", () => {
+    expect(matchChoiceByText(OPTIONS, "necessitei de mais info")).toBeNull();
   });
 
   test("retorna null se não achar nada", () => {
     expect(matchChoiceByText(OPTIONS, "não sei explicar")).toBeNull();
+  });
+});
+
+describe("matchChoiceByText (first_order_check edge cases)", () => {
+  const FIRST_ORDER_OPTIONS = [
+    { id: "sim", label: "Sim" },
+    { id: "nao", label: "Não" },
+  ];
+
+  test("não casa 'nao' em 'senão' (substring falso)", () => {
+    expect(matchChoiceByText(FIRST_ORDER_OPTIONS, "senão")).toBeNull();
+  });
+
+  test("casa 'sim' em 'sim, pode ser' (word boundary)", () => {
+    expect(matchChoiceByText(FIRST_ORDER_OPTIONS, "sim, pode ser")).toBe("sim");
+  });
+
+  test("não casa 'sim' em 'simples' (substring falso)", () => {
+    expect(matchChoiceByText(FIRST_ORDER_OPTIONS, "é simples")).toBeNull();
+  });
+
+  test("casa 'nao' exata (label com acento)", () => {
+    expect(matchChoiceByText(FIRST_ORDER_OPTIONS, "não")).toBe("nao");
   });
 });
 

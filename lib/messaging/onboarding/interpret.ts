@@ -23,7 +23,16 @@ export function matchChoiceByText(
   );
   if (direct) return direct.id;
 
-  const partial = options.find((o) => normalized.includes(normalize(o.label)));
+  // Whole-word boundary matching to avoid false positives from substrings
+  // (e.g., "senao" should not match "nao" or "necessitei" match "site")
+  const partial = options.find((o) => {
+    const normalizedLabel = normalize(o.label);
+    // Escape regex special characters in the label to safely build pattern
+    const escaped = normalizedLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Check if normalized label appears as whole word(s) in the text
+    const regex = new RegExp(`\\b${escaped}\\b`, 'g');
+    return regex.test(normalized);
+  });
   return partial?.id ?? null;
 }
 
