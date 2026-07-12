@@ -25,7 +25,9 @@ export async function runAgent({ orgId, agentId, conversationId }: RunContext): 
   // 1. Load conversation + canal + contato
   const { data: conv } = await supabase
     .from("conversations")
-    .select("id, organization_id, contact_id, external_thread_id, channel:channels!inner(id, type, name)")
+    .select(
+      "id, organization_id, contact_id, external_thread_id, handled_by, channel:channels!inner(id, type, name)",
+    )
     .eq("id", conversationId)
     .maybeSingle();
   if (!conv) return;
@@ -47,6 +49,8 @@ export async function runAgent({ orgId, agentId, conversationId }: RunContext): 
     tone: agent.tone as PromptSettings["tone"],
     never_do: agent.never_do,
   };
+
+  const mode: "full" | "faq_only" = conv.handled_by === "human" ? "faq_only" : "full";
 
   // 3. Cost cap por agente
   const { data: withinCap } = await supabase.rpc("consume_agent_tokens", {
@@ -98,20 +102,22 @@ export async function runAgent({ orgId, agentId, conversationId }: RunContext): 
   const startedAt = Date.now();
 
   try {
-    const systemPrompt = buildSystemPrompt(promptSettings, ragBlock);
+    const systemPrompt = buildSystemPrompt(promptSettings, ragBlock, mode);
 
     const modelMessages: ModelMessage[] = history.map((m) => ({
       role: m.direction === "inbound" ? "user" : "assistant",
       content: m.body ?? "[mídia]",
     }));
 
-    const tools = buildTools({
+    const allTools = buildTools({
       orgId,
       agentId,
       conversationId,
       contactId: conv.contact_id,
       supabase,
     });
+    const tools =
+      mode === "faq_only" ? { search_knowledge_base: allTools.search_knowledge_base } : allTools;
 
     const result = await generateText({
       model: getLanguageModel({

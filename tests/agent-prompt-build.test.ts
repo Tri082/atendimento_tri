@@ -51,4 +51,18 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("search_knowledge_base");
     expect(prompt).toContain("escalate_to_human");
   });
+
+  test("modo full (default) inclui tools de CRM e regra de escalate_to_human", () => {
+    const prompt = buildSystemPrompt(baseSettings, "");
+    expect(prompt).toContain("escalate_to_human");
+    expect(prompt).toContain("create_contact");
+  });
+
+  test("modo faq_only restringe a search_knowledge_base e proíbe preço/design", () => {
+    const prompt = buildSystemPrompt(baseSettings, "", "faq_only");
+    expect(prompt).toContain("search_knowledge_base");
+    expect(prompt).not.toContain("create_contact");
+    expect(prompt.toLowerCase()).toContain("vou verificar com nossa equipe");
+    expect(prompt.toLowerCase()).toMatch(/nunca fale de preço|nunca.*orçamento/);
+  });
 });
