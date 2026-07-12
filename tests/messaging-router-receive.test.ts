@@ -3,13 +3,21 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 vi.mock("@/lib/supabase/service", () => ({ createServiceClient: vi.fn() }));
 
 vi.mock("next/server", () => ({
-  after: (fn: () => unknown) => {
-    // No-op em testes — sem request scope, callbacks são descartados.
-    void fn;
-  },
+  // Invoca o callback (como em messaging-router-send.test.ts) — precisa
+  // rodar de verdade pra testar startOnboarding/advanceOnboardingFromMessage
+  // (Task 8). Nenhum fixture deste arquivo seta `channel.agent_id`, então
+  // `triggerAgent` (não mockado aqui) nunca é alcançado mesmo com after()
+  // executando de verdade.
+  after: (fn: () => unknown) => Promise.resolve(fn()),
+}));
+
+vi.mock("@/lib/messaging/onboarding/service", () => ({
+  startOnboarding: vi.fn(),
+  advanceOnboardingFromMessage: vi.fn(),
 }));
 
 import type { NormalizedEvent } from "@/lib/messaging/adapter";
+import { advanceOnboardingFromMessage, startOnboarding } from "@/lib/messaging/onboarding/service";
 import { processInboundMessage } from "@/lib/messaging/router";
 import { createServiceClient } from "@/lib/supabase/service";
 
@@ -31,6 +39,7 @@ function buildSupabase(state: {
   insertConversationResult?: { id: string };
   insertMessageResult?: { id: string } | null;
   currentUnreadCount?: number;
+  onboardingRow?: { current_step: string; answers: Record<string, unknown> } | null;
 }): { sb: unknown; rec: Recorder } {
   const rec: Recorder = { inserts: {}, updates: {} };
 
@@ -59,6 +68,9 @@ function buildSupabase(state: {
               };
             }
             if (table === "contacts") return { data: state.contactByPhone ?? null, error: null };
+            if (table === "conversation_onboarding") {
+              return { data: state.onboardingRow ?? null, error: null };
+            }
             return { data: null, error: null };
           },
         }),
@@ -110,7 +122,11 @@ function makeEvent(
 }
 
 describe("processInboundMessage", () => {
-  beforeEach(() => mockedCreate.mockReset());
+  beforeEach(() => {
+    mockedCreate.mockReset();
+    vi.mocked(startOnboarding).mockClear();
+    vi.mocked(advanceOnboardingFromMessage).mockClear();
+  });
 
   test("ignora se channel não encontrado pelo id em raw", async () => {
     const { sb, rec } = buildSupabase({});
@@ -210,6 +226,73 @@ describe("processInboundMessage", () => {
     expect(update.last_message_at).toBeDefined();
     expect(update.last_inbound_at).toBeDefined();
     expect(update.unread_count).toBe(4);
+  });
+
+  test("conversa nova dispara startOnboarding e NÃO dispara o agente", async () => {
+    const { sb } = buildSupabase({
+      channelByExternal: {
+        id: CHANNEL_ID,
+        type: "whatsapp_cloud",
+        organization_id: ORG_ID,
+      },
+      insertConversationResult: { id: CONV_ID },
+      insertMessageResult: { id: "msg-1" },
+      onboardingRow: null,
+    });
+    mockedCreate.mockReturnValue(sb);
+
+    await processInboundMessage("whatsapp_cloud", makeEvent());
+
+    expect(startOnboarding).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: ORG_ID, conversationId: CONV_ID }),
+    );
+    expect(advanceOnboardingFromMessage).not.toHaveBeenCalled();
+  });
+
+  test("onboarding em andamento chama advanceOnboardingFromMessage e NÃO dispara o agente", async () => {
+    const { sb } = buildSupabase({
+      channelByExternal: {
+        id: CHANNEL_ID,
+        type: "whatsapp_cloud",
+        organization_id: ORG_ID,
+      },
+      existingConversation: { id: CONV_ID, organization_id: ORG_ID },
+      insertMessageResult: { id: "msg-2" },
+      onboardingRow: { current_step: "first_order_check", answers: { name: "Maria" } },
+    });
+    mockedCreate.mockReturnValue(sb);
+
+    await processInboundMessage("whatsapp_cloud", makeEvent({ message: { body: "Sim" } }));
+
+    expect(advanceOnboardingFromMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: ORG_ID,
+        conversationId: CONV_ID,
+        agentId: null,
+        onboarding: { currentStepId: "first_order_check", answers: { name: "Maria" } },
+        messageText: "Sim",
+      }),
+    );
+    expect(startOnboarding).not.toHaveBeenCalled();
+  });
+
+  test("onboarding completed segue fluxo normal (não chama nenhuma função de onboarding)", async () => {
+    const { sb } = buildSupabase({
+      channelByExternal: {
+        id: CHANNEL_ID,
+        type: "whatsapp_cloud",
+        organization_id: ORG_ID,
+      },
+      existingConversation: { id: CONV_ID, organization_id: ORG_ID },
+      insertMessageResult: { id: "msg-3" },
+      onboardingRow: { current_step: "completed", answers: {} },
+    });
+    mockedCreate.mockReturnValue(sb);
+
+    await processInboundMessage("whatsapp_cloud", makeEvent());
+
+    expect(startOnboarding).not.toHaveBeenCalled();
+    expect(advanceOnboardingFromMessage).not.toHaveBeenCalled();
   });
 });
 

@@ -8,6 +8,11 @@ import type { ChannelType, MessagingAdapter, NormalizedEvent } from "./adapter";
 import { getChannelConfigSystem } from "./channel-config";
 import { translateError } from "./errors";
 import { normalizePhone } from "./normalize";
+import {
+  advanceOnboardingFromMessage,
+  startOnboarding,
+} from "./onboarding/service";
+import type { OnboardingAnswers, OnboardingStepId } from "./onboarding/script";
 import { getAdapter } from "./registry";
 
 const STATUS_RANK: Record<string, number> = {
@@ -430,10 +435,50 @@ export async function processInboundMessage(
     }
   }
 
+  // Onboarding: roteiro fixo de qualificação roda ANTES do agente livre pra
+  // toda conversa nova. Enquanto não completar, o agente de IA não é
+  // acionado (ver condição abaixo) — o roteiro é quem responde.
+  let onboardingActive = false;
+  if (!isOutbound && insertedMsg) {
+    const { data: onboardingRow } = await supabase
+      .from("conversation_onboarding")
+      .select("current_step, answers")
+      .eq("conversation_id", conversationId)
+      .maybeSingle();
+
+    if (!onboardingRow) {
+      onboardingActive = true;
+      after(() =>
+        startOnboarding({
+          supabase,
+          orgId: channel.organization_id,
+          conversationId,
+        }),
+      );
+    } else if (onboardingRow.current_step !== "completed") {
+      onboardingActive = true;
+      after(() =>
+        advanceOnboardingFromMessage({
+          supabase,
+          orgId: channel.organization_id,
+          conversationId,
+          agentId: channel.agent_id ?? null,
+          onboarding: {
+            currentStepId: onboardingRow.current_step as OnboardingStepId,
+            answers: (onboardingRow.answers ?? {}) as OnboardingAnswers,
+          },
+          messageText: event.message?.body ?? null,
+          buttonReplyId: event.message?.buttonReplyId ?? null,
+        }),
+      );
+    }
+  }
+
   // Sub-projeto E: dispara agente se canal tem agent_id setado, agente ativo,
-  // conv não pausada, e a mensagem é inbound (não acionar agente com base na
-  // resposta manual do próprio humano).
+  // conv não pausada, mensagem é inbound, e o onboarding já concluiu (senão
+  // quem responde é o roteiro, não o agente livre).
   if (
+    !onboardingActive &&
     !isOutbound &&
     channel.agent_id &&
     channel.agent?.is_active &&
