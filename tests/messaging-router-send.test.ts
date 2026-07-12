@@ -286,4 +286,138 @@ describe("processSendOutbound dispatch", () => {
     mockAdapter.sendTemplate = origSendTemplate;
     mockAdapter.sendMessage = origSendMessage;
   });
+
+  test("chama adapter.sendButtons quando provider_metadata.buttons presente", async () => {
+    const sendButtonsCalls: unknown[] = [];
+    const sendMsgCalls: unknown[] = [];
+
+    const msgRow = {
+      id: "msg-2",
+      organization_id: ORG_ID,
+      conversation_id: CONV_ID,
+      body: "É o seu primeiro pedido conosco?",
+      media_url: null,
+      media_type: null,
+      reply_to_message_id: null,
+      status: "sending",
+      provider_metadata: {
+        buttons: [
+          { id: "sim", title: "Sim" },
+          { id: "nao", title: "Não" },
+        ],
+      },
+      conversation: {
+        channel_id: "ch-1",
+        external_thread_id: "+5511987654321",
+        channel: { id: "ch-1", type: "mock", config: {} },
+      },
+    };
+
+    const sb = {
+      from: (_table: string) => ({
+        select: () => ({
+          eq: () => ({
+            single: async () => ({ data: msgRow, error: null }),
+          }),
+        }),
+        update: () => ({ eq: () => ({ eq: async () => ({ error: null }) }) }),
+      }),
+    };
+
+    vi.doUnmock("@/lib/messaging/router");
+    vi.resetModules();
+
+    const { createServiceClient: freshServiceCreate } = await import("@/lib/supabase/service");
+    (freshServiceCreate as ReturnType<typeof vi.fn>).mockReturnValue(sb);
+
+    await import("@/lib/messaging/adapters/mock");
+    const { getAdapter } = await import("@/lib/messaging/registry");
+    const mockAdapter = getAdapter("mock");
+    const origSendMessage = mockAdapter.sendMessage;
+    mockAdapter.sendButtons = vi.fn(async (...args) => {
+      sendButtonsCalls.push(args);
+      return { externalId: "btn-x" };
+    });
+    mockAdapter.sendMessage = vi.fn(async (...args) => {
+      sendMsgCalls.push(args);
+      return { externalId: "msg-x" };
+    });
+
+    const { processSendOutbound } = await import("@/lib/messaging/router");
+
+    await processSendOutbound("msg-2");
+
+    expect(sendButtonsCalls).toHaveLength(1);
+    expect(sendMsgCalls).toHaveLength(0);
+
+    delete mockAdapter.sendButtons;
+    mockAdapter.sendMessage = origSendMessage;
+  });
+
+  test("cai pra texto numerado se adapter.sendButtons falhar", async () => {
+    const sendMsgCalls: unknown[] = [];
+
+    const msgRow = {
+      id: "msg-3",
+      organization_id: ORG_ID,
+      conversation_id: CONV_ID,
+      body: "É o seu primeiro pedido conosco?",
+      media_url: null,
+      media_type: null,
+      reply_to_message_id: null,
+      status: "sending",
+      provider_metadata: {
+        buttons: [
+          { id: "sim", title: "Sim" },
+          { id: "nao", title: "Não" },
+        ],
+      },
+      conversation: {
+        channel_id: "ch-1",
+        external_thread_id: "+5511987654321",
+        channel: { id: "ch-1", type: "mock", config: {} },
+      },
+    };
+
+    const sb = {
+      from: (_table: string) => ({
+        select: () => ({
+          eq: () => ({
+            single: async () => ({ data: msgRow, error: null }),
+          }),
+        }),
+        update: () => ({ eq: () => ({ eq: async () => ({ error: null }) }) }),
+      }),
+    };
+
+    vi.doUnmock("@/lib/messaging/router");
+    vi.resetModules();
+
+    const { createServiceClient: freshServiceCreate } = await import("@/lib/supabase/service");
+    (freshServiceCreate as ReturnType<typeof vi.fn>).mockReturnValue(sb);
+
+    await import("@/lib/messaging/adapters/mock");
+    const { getAdapter } = await import("@/lib/messaging/registry");
+    const mockAdapter = getAdapter("mock");
+    const origSendMessage = mockAdapter.sendMessage;
+    mockAdapter.sendButtons = vi.fn(async () => {
+      throw new Error("Evolution rejeitou o botão");
+    });
+    mockAdapter.sendMessage = vi.fn(async (...args) => {
+      sendMsgCalls.push(args);
+      return { externalId: "msg-fallback" };
+    });
+
+    const { processSendOutbound } = await import("@/lib/messaging/router");
+
+    await processSendOutbound("msg-3");
+
+    expect(sendMsgCalls).toHaveLength(1);
+    const [, opts] = sendMsgCalls[0] as [unknown, { body?: string }];
+    expect(opts.body).toContain("1) Sim");
+    expect(opts.body).toContain("2) Não");
+
+    delete mockAdapter.sendButtons;
+    mockAdapter.sendMessage = origSendMessage;
+  });
 });

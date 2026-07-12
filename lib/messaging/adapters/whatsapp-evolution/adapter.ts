@@ -1,5 +1,6 @@
 import type {
   MessagingAdapter,
+  SendButtonsOpts,
   SendMessageOpts,
   SendTemplateOpts,
   VerifyWebhookRequest,
@@ -77,6 +78,25 @@ export const evolutionAdapter: MessagingAdapter = {
     }
     if (!firstId) throw new Error("Falha ao enviar mídia.");
     return { externalId: firstId };
+  },
+
+  async sendButtons(config: unknown, opts: SendButtonsOpts): Promise<{ externalId: string }> {
+    const cfg = parseCfg(config);
+    const to = stripPlus(opts.to);
+    const res = await postJson<{ key: { id: string } }>(
+      `${cfg.baseUrl}/message/sendButtons/${cfg.instanceName}`,
+      cfg.apiKey,
+      {
+        number: to,
+        text: opts.text,
+        footerText: opts.footerText ?? "",
+        buttons: opts.buttons.map((b) => ({
+          buttonId: b.id,
+          buttonText: { displayText: b.title },
+        })),
+      },
+    );
+    return { externalId: res.key.id };
   },
 
   async sendTemplate(_config: unknown, _opts: SendTemplateOpts) {

@@ -81,6 +81,13 @@ export interface SendMessageOpts {
   replyToExternalId?: string;
 }
 
+export interface SendButtonsOpts {
+  to: string;
+  text: string;
+  buttons: { id: string; title: string }[];
+  footerText?: string;
+}
+
 export interface SendTemplateOpts {
   to: string;
   templateName: string;
@@ -117,4 +124,9 @@ export interface MessagingAdapter {
     externalMediaId: string,
     channelConfig: unknown,
   ): Promise<{ data: Buffer; mimeType: string }>;
+
+  sendButtons?(
+    channelConfig: unknown,
+    opts: SendButtonsOpts,
+  ): Promise<{ externalId: string }>;
 }

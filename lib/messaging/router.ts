@@ -72,6 +72,7 @@ export async function processSendOutbound(messageId: string): Promise<void> {
 
   try {
     const tpl = (msg.provider_metadata as { template?: { name: string; language: string; params: Record<string, string> } } | null)?.template;
+    const buttons = (msg.provider_metadata as { buttons?: { id: string; title: string }[] } | null)?.buttons;
 
     let externalId: string;
     if (tpl) {
@@ -86,6 +87,27 @@ export async function processSendOutbound(messageId: string): Promise<void> {
         return;
       }
       externalId = result.externalId;
+    } else if (buttons && buttons.length > 0 && adapter.sendButtons) {
+      try {
+        const result = await adapter.sendButtons(channel.config, {
+          to: conv.external_thread_id,
+          text: msg.body ?? "",
+          buttons,
+        });
+        externalId = result.externalId;
+      } catch (buttonErr) {
+        // Fallback: WhatsApp/Evolution pode rejeitar botões (número não
+        // oficial, versão do app etc.) — não trava o roteiro, manda texto
+        // numerado equivalente.
+        logError("messaging.send-buttons-fallback", buttonErr);
+        const numberedList = buttons.map((b, i) => `${i + 1}) ${b.title}`).join("\n");
+        const fallbackBody = [msg.body ?? "", numberedList].filter(Boolean).join("\n\n");
+        const result = await adapter.sendMessage(channel.config, {
+          to: conv.external_thread_id,
+          body: fallbackBody,
+        });
+        externalId = result.externalId;
+      }
     } else {
       const result = await adapter.sendMessage(channel.config, {
         to: conv.external_thread_id,
