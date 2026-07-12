@@ -18,7 +18,7 @@ const MEDIA_TYPES = new Set([
 function extractMessageContent(
   messageType: string | undefined,
   message: Record<string, unknown> | undefined,
-): { body?: string; media?: NormalizedMediaAttachment[]; mimeType?: string } {
+): { body?: string; media?: NormalizedMediaAttachment[]; mimeType?: string; buttonReplyId?: string } {
   if (!message) return {};
   if (messageType === "conversation") {
     return { body: typeof message.conversation === "string" ? message.conversation : undefined };
@@ -26,6 +26,13 @@ function extractMessageContent(
   if (messageType === "extendedTextMessage") {
     const ext = message.extendedTextMessage as Record<string, unknown> | undefined;
     return { body: typeof ext?.text === "string" ? ext.text : undefined };
+  }
+  if (messageType === "buttonsResponseMessage") {
+    const br = message.buttonsResponseMessage as Record<string, unknown> | undefined;
+    const selectedButtonId = typeof br?.selectedButtonId === "string" ? br.selectedButtonId : undefined;
+    const selectedDisplayText =
+      typeof br?.selectedDisplayText === "string" ? br.selectedDisplayText : undefined;
+    return { body: selectedDisplayText, buttonReplyId: selectedButtonId };
   }
   if (messageType && MEDIA_TYPES.has(messageType)) {
     const m = message[messageType] as Record<string, unknown> | undefined;
@@ -73,6 +80,7 @@ function parseMessageUpsert(payload: Payload): NormalizedEvent[] {
       message: {
         body: extracted.body,
         media,
+        buttonReplyId: extracted.buttonReplyId,
       },
       raw: { instanceName: payload.instance, ...payload },
     },

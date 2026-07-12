@@ -123,6 +123,32 @@ describe("parseWebhook — status updates", () => {
   });
 });
 
+describe("parseWebhook — mensagens", () => {
+  test("parseia buttonsResponseMessage com selectedButtonId", () => {
+    const payload = {
+      event: "messages.upsert",
+      instance: "inst-1",
+      data: {
+        key: { remoteJid: "5511987654321@s.whatsapp.net", id: "MSG1", fromMe: false },
+        messageType: "buttonsResponseMessage",
+        message: {
+          buttonsResponseMessage: {
+            selectedButtonId: "sim",
+            selectedDisplayText: "Sim",
+          },
+        },
+        messageTimestamp: 1700000000,
+        pushName: "Cliente Teste",
+      },
+    };
+
+    const events = parseWebhook(payload);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.message?.buttonReplyId).toBe("sim");
+    expect(events[0]?.message?.body).toBe("Sim");
+  });
+});
+
 describe("parseWebhook — robustez", () => {
   test("payload null retorna []", () => {
     expect(parseWebhook(null)).toEqual([]);

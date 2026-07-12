@@ -45,6 +45,10 @@ export interface NormalizedEvent {
     body?: string;
     media?: NormalizedMediaAttachment[];
     replyToExternalId?: string;
+    // Preenchido quando o cliente responde tocando num botão interativo
+    // (Evolution: messageType "buttonsResponseMessage"). Usado pelo roteiro
+    // de onboarding pra distinguir tap de texto livre.
+    buttonReplyId?: string;
   };
 
   status?: {
