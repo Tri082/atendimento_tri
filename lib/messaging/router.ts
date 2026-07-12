@@ -444,6 +444,7 @@ export async function processInboundMessage(
       .from("conversation_onboarding")
       .select("current_step, answers")
       .eq("conversation_id", conversationId)
+      .eq("organization_id", channel.organization_id)
       .maybeSingle();
 
     if (!onboardingRow) {

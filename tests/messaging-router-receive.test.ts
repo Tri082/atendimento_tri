@@ -54,6 +54,9 @@ function buildSupabase(state: {
               if (table === "conversations")
                 return { data: state.existingConversation ?? null, error: null };
               if (table === "contacts") return { data: state.contactByPhone ?? null, error: null };
+              if (table === "conversation_onboarding") {
+                return { data: state.onboardingRow ?? null, error: null };
+              }
               return { data: null, error: null };
             },
           }),
