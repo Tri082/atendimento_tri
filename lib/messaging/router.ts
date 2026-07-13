@@ -8,6 +8,7 @@ import type { ChannelType, MessagingAdapter, NormalizedEvent } from "./adapter";
 import { getChannelConfigSystem } from "./channel-config";
 import { translateError } from "./errors";
 import { normalizePhone } from "./normalize";
+import { acquireOutboundSlot } from "./outbound-pacing";
 import {
   advanceOnboardingFromMessage,
   startOnboarding,
@@ -74,6 +75,11 @@ export async function processSendOutbound(messageId: string): Promise<void> {
     await markFailed(messageId, translateError(err));
     return;
   }
+
+  // Espera a vez do canal na fila de saída (rate limit + delay humano) antes
+  // de despachar de fato — reduz o padrão de rajada de mensagens que sistemas
+  // antifraude do WhatsApp usam pra flagar automação (ver lib/messaging/outbound-pacing.ts).
+  await acquireOutboundSlot(channel.id);
 
   try {
     const tpl = (msg.provider_metadata as { template?: { name: string; language: string; params: Record<string, string> } } | null)?.template;

@@ -7,6 +7,7 @@ vi.mock("@/lib/automations/actions/assign-owner", () => ({
 }));
 vi.mock("@/lib/messaging/onboarding/interpret", () => ({
   interpretChoiceAnswer: vi.fn(),
+  isCoherentTextAnswer: vi.fn().mockResolvedValue(true),
 }));
 vi.mock("@/lib/agent/rag/retrieve", () => ({
   retrieveContext: vi.fn().mockResolvedValue([]),

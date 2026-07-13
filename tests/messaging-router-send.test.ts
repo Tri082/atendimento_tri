@@ -6,6 +6,9 @@ vi.mock("@/lib/auth/guards", () => ({ requireOrgMember: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/server", () => ({ after: (fn: () => unknown) => Promise.resolve(fn()) }));
 vi.mock("@/lib/messaging/router", () => ({ processSendOutbound: vi.fn() }));
+vi.mock("@/lib/messaging/outbound-pacing", () => ({
+  acquireOutboundSlot: vi.fn().mockResolvedValue(undefined),
+}));
 
 import { requireOrgMember } from "@/lib/auth/guards";
 import { sendMessageAction } from "@/lib/messaging/actions";
