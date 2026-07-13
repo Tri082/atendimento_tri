@@ -1,23 +1,35 @@
 import { randomUUID } from "node:crypto";
 import { tool } from "ai";
+import { after } from "next/server";
 import { z } from "zod";
 import { emitAfter } from "@/lib/automations/emit";
 import { logError } from "@/lib/logger";
+import { processSendOutbound } from "@/lib/messaging/router";
 import type { ToolContext } from "./index";
+
+const HANDOFF_MESSAGE =
+  "Só um momento, vou chamar alguém do nosso time pra continuar te ajudando! 🙂";
 
 export function makeEscalateTool(ctx: ToolContext) {
   return tool({
     description:
-      "Escalona pra humano: pausa o agente nessa conversa, cria task urgente, e retorna instrução pra você mandar uma mensagem de despedida ao cliente. Use quando: cliente pediu humano explicitamente, ou você não consegue ajudar com o que ele precisa.",
+      "Escalona pra humano: pausa o agente nessa conversa, avisa o cliente automaticamente e cria task urgente. Use quando: cliente pediu humano explicitamente, ou você não consegue ajudar com o que ele precisa.",
     inputSchema: z.object({
       reason: z.string().min(1).max(500).describe("Por que você está escalando"),
     }),
     execute: async ({ reason }) => {
       try {
-        // 1. Pausa agente na conversa
+        // 1. Pausa agente na conversa + marca que está aguardando humano.
+        // handoff_requested_at é o sinal usado pelo inbox pra destacar essa
+        // conversa (lista + banner) até um humano responder ou resolvê-la —
+        // diferente de agent_status='paused_handoff' sozinho, que também
+        // cobre o caso de um atendente já ter clicado "Assumir" manualmente.
         await ctx.supabase
           .from("conversations")
-          .update({ agent_status: "paused_handoff" })
+          .update({
+            agent_status: "paused_handoff",
+            handoff_requested_at: new Date().toISOString(),
+          })
           .eq("id", ctx.conversationId)
           .eq("organization_id", ctx.orgId);
 
@@ -31,7 +43,28 @@ export function makeEscalateTool(ctx: ToolContext) {
           status: "pending",
         });
 
-        // Sub-H: emit agent.escalated
+        // 3. Avisa o cliente diretamente (não depende do LLM decidir mandar
+        // uma mensagem de despedida por conta própria — isso não era
+        // garantido e podia deixar o cliente sem resposta nenhuma).
+        const { data: handoffMsg, error: handoffMsgError } = await ctx.supabase
+          .from("messages")
+          .insert({
+            organization_id: ctx.orgId,
+            conversation_id: ctx.conversationId,
+            direction: "outbound",
+            sender_kind: "bot",
+            body: HANDOFF_MESSAGE,
+            status: "sending",
+          })
+          .select("id")
+          .single();
+
+        if (handoffMsgError || !handoffMsg) {
+          logError("tool.escalate.handoff-message", handoffMsgError ?? new Error("insert failed"));
+        } else {
+          after(() => processSendOutbound(handoffMsg.id));
+        }
+
         // Sub-H H-4: randomUUID slice no dedupeId — se 2 escalações no mesmo ms (clock skew),
         // só timestamp pode colidir; uuid garante unicidade
         const escalatedAt = new Date().toISOString();
@@ -74,7 +107,7 @@ export function makeEscalateTool(ctx: ToolContext) {
         return {
           success: true,
           instruction:
-            "Você acabou de escalar pro humano. Mande UMA mensagem curta e cordial avisando o cliente que um humano vai continuar com ele em breve. Não use tools novamente.",
+            "Você acabou de escalar pro humano — a mensagem de aviso já foi enviada automaticamente ao cliente. NÃO mande mais nenhuma mensagem nem use tools novamente.",
         };
       } catch (err) {
         logError("tool.escalate", err);
