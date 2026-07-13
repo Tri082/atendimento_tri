@@ -85,9 +85,12 @@ export async function sendMessageAction(
     return { ok: false, error: "Não foi possível enviar a mensagem." };
   }
 
+  // Atendente mandou mensagem: encerra a espera de handoff, se houver uma
+  // em aberto — sem isso, uma conversa já sendo respondida continuaria
+  // aparecendo destacada como "aguardando" na lista do inbox.
   await supabase
     .from("conversations")
-    .update({ last_message_at: new Date().toISOString() })
+    .update({ last_message_at: new Date().toISOString(), handoff_requested_at: null })
     .eq("id", parsed.data.conversationId);
 
   after(() => processSendOutbound(inserted.id));
@@ -163,7 +166,7 @@ export async function sendTemplateAction(
 
   await supabase
     .from("conversations")
-    .update({ last_message_at: new Date().toISOString() })
+    .update({ last_message_at: new Date().toISOString(), handoff_requested_at: null })
     .eq("id", parsed.data.conversationId);
 
   after(() => processSendOutbound(inserted.id));

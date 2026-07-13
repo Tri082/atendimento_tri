@@ -107,6 +107,7 @@ describe("sendMessageAction", () => {
       status: "sending",
       body: "Oi",
     });
+    expect(sb.__updates[0]).toMatchObject({ handoff_requested_at: null });
   });
 
   test("retorna erro de validação se sem body e sem media", async () => {
