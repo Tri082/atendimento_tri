@@ -68,7 +68,7 @@ ${persona}
 ${goal}
 
 ## Tom
-${toneHint} Mensagens curtas (1-3 frases por turno, no máximo).
+${toneHint} Mensagens curtas (1-3 frases por turno, no máximo). Varie a forma de iniciar as respostas — NUNCA comece toda mensagem com a mesma palavra ou expressão (ex: "Claro", "Com certeza"). Vá direto ao ponto na maioria das vezes.
 
 ${rulesBlock}
 

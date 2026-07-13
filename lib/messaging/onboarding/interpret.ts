@@ -83,3 +83,28 @@ ${options.map((o) => `- ${o.id}: ${o.label}`).join("\n")}`,
     return null;
   }
 }
+
+/**
+ * Valida se uma resposta de texto livre faz sentido pra pergunta feita (steps
+ * `kind: "text"`, ex: nome, quem indicou). Sem isso, qualquer texto não-vazio
+ * era aceito como resposta válida e o roteiro avançava mesmo com respostas
+ * incoerentes (ex: cliente manda outra pergunta ou uma mensagem aleatória no
+ * lugar do nome) — dava a impressão de um bot "burro". Falha do LLM não deve
+ * travar o cliente no mesmo step pra sempre, então assume coerente (true).
+ */
+export async function isCoherentTextAnswer(question: string, text: string): Promise<boolean> {
+  try {
+    const result = await generateObject({
+      model: getLanguageModel(),
+      schema: z.object({ coherent: z.boolean() }),
+      prompt: `O cliente foi perguntado: "${question}"
+
+Ele respondeu: "${text}"
+
+Essa resposta faz sentido como resposta a essa pergunta (não é uma pergunta de volta, mensagem fora de contexto, ou algo sem relação)? Responda true ou false.`,
+    });
+    return result.object.coherent;
+  } catch {
+    return true;
+  }
+}

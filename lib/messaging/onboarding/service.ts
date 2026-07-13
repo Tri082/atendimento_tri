@@ -6,7 +6,7 @@ import { assignOwnerAction } from "@/lib/automations/actions/assign-owner";
 import { retrieveContext } from "@/lib/agent/rag/retrieve";
 import { logError } from "@/lib/logger";
 import { processSendOutbound } from "@/lib/messaging/router";
-import { interpretChoiceAnswer } from "./interpret";
+import { interpretChoiceAnswer, isCoherentTextAnswer } from "./interpret";
 import { advanceOnboarding, type OnboardingUserInput } from "./state-machine";
 import {
   MAX_BUTTON_OPTIONS,
@@ -132,6 +132,29 @@ async function completeOnboarding(params: {
     return;
   }
 
+  // Mensagem de fechamento pro CLIENTE (via WhatsApp) — sem isso, depois da
+  // última pergunta o roteiro só grava a nota interna abaixo (sender_kind
+  // "system", nunca despachada pro adapter) e o cliente fica sem nenhuma
+  // resposta, parecendo que o bot travou.
+  const { data: closingMsg, error: closingError } = await supabase
+    .from("messages")
+    .insert({
+      organization_id: orgId,
+      conversation_id: conversationId,
+      direction: "outbound",
+      sender_kind: "bot",
+      body: "Perfeito, já anotei tudo! Vou te passar pro nosso time agora, eles continuam seu atendimento por aqui mesmo 🙂",
+      status: "sending",
+    })
+    .select("id")
+    .single();
+
+  if (closingError || !closingMsg) {
+    logError("onboarding.closing-message", closingError ?? new Error("insert failed"));
+  } else {
+    after(() => processSendOutbound(closingMsg.id));
+  }
+
   const { error: stepUpdateError } = await supabase
     .from("conversation_onboarding")
     .update({
@@ -236,7 +259,11 @@ export async function advanceOnboardingFromMessage(params: {
   let input: OnboardingUserInput | null = null;
 
   if (stepDef.kind === "text") {
-    if (messageText?.trim()) input = { kind: "text", text: messageText.trim() };
+    const trimmed = messageText?.trim();
+    if (trimmed) {
+      const coherent = await isCoherentTextAnswer(stepDef.question(onboarding.answers), trimmed);
+      if (coherent) input = { kind: "text", text: trimmed };
+    }
   } else {
     if (buttonReplyId) {
       input = { kind: "button", optionId: buttonReplyId };
