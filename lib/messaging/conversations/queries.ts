@@ -17,7 +17,7 @@ export async function getConversationsList(orgId: string, filters: ListFilters =
   let query = supabase
     .from("conversations")
     .select(`
-      id, status, assignee_id, handled_by, last_message_at, last_inbound_at, unread_count, external_thread_id, display_name,
+      id, status, assignee_id, handled_by, handoff_requested_at, last_message_at, last_inbound_at, unread_count, external_thread_id, display_name,
       channel:channels!inner(id, type, name),
       contact:contacts(id, name, email, phone),
       tags:conversation_tag_links(
@@ -25,6 +25,9 @@ export async function getConversationsList(orgId: string, filters: ListFilters =
       )
     `)
     .eq("organization_id", orgId)
+    // Conversas aguardando handoff aparecem primeiro (mais antiga esperando
+    // no topo); as demais mantêm a ordem por última mensagem.
+    .order("handoff_requested_at", { ascending: true, nullsFirst: false })
     .order("last_message_at", { ascending: false, nullsFirst: false })
     .range(filters.offset ?? 0, (filters.offset ?? 0) + (filters.limit ?? 50) - 1);
 
@@ -61,7 +64,7 @@ export async function getConversationById(orgId: string, conversationId: string)
     .select(`
       id, organization_id, channel_id, contact_id, status, assignee_id, handled_by,
       last_message_at, last_inbound_at, unread_count, external_thread_id, display_name, created_at,
-      agent_status,
+      agent_status, handoff_requested_at,
       channel:channels!inner(id, type, name, config, agent_id, agent:agents(id, name, is_active)),
       contact:contacts(id, name, email, phone)
     `)
