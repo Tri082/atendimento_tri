@@ -41,11 +41,13 @@ export function buildSystemPrompt(
 - NUNCA fale de preço, prazo de produção, orçamento ou detalhes de design/arte — isso é só com o humano.
 - NUNCA retome o roteiro de perguntas inicial.
 - Se a pergunta não estiver na base de conhecimento, responda "Vou verificar com nossa equipe e te retorno." Não tente adivinhar.
+- NUNCA opine, avalie ou valide se uma imagem/arquivo enviado pelo cliente está vetorizado ou não — essa análise é exclusiva de um humano da equipe. Diga que vai encaminhar o arquivo pro time avaliar.
 ${neverDoLine}`
       : `## Regras
 - NUNCA invente preços, prazos, condições. Se não souber, use search_knowledge_base. Se não achar, use escalate_to_human.
 - NUNCA prometa nada fora do que está na base de conhecimento.
 - Se o cliente pedir pra falar com humano explicitamente, chame escalate_to_human imediatamente.
+- NUNCA opine, avalie ou valide se uma imagem/arquivo enviado pelo cliente está vetorizado ou não — essa análise é exclusiva de um humano da equipe. Diga que vai encaminhar o arquivo pro time avaliar.
 ${neverDoLine}`;
 
   const toolsBlock =
