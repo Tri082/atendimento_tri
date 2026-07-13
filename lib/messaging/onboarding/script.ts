@@ -87,10 +87,10 @@ export const ONBOARDING_STEPS: Record<OnboardingStepId, OnboardingStepDef> = {
     kind: "choice",
     question: () => "Qual seria o uso das camisas?",
     options: [
-      { id: "evento_esportivo", label: "Evento esportivo" },
-      { id: "fardamento", label: "Fardamento" },
-      { id: "trabalho", label: "Trabalho" },
-      { id: "outro", label: "Outro uso específico" },
+      { id: "esportivo", label: "Esportivo 🏃‍♂️" },
+      { id: "comercial_institucional_corporativo", label: "Comercial/ Institucional/ Corporativo" },
+      { id: "eventos", label: "Eventos" },
+      { id: "outro", label: "Outro" },
     ],
   },
   layout_status: {
@@ -111,6 +111,7 @@ export const ONBOARDING_STEPS: Record<OnboardingStepId, OnboardingStepDef> = {
       { id: "sim_vetorizado", label: "Sim, estão vetorizados" },
       { id: "sim_nao_vetorizado", label: "Sim, mas não estão vetorizados" },
       { id: "nao_tenho", label: "Ainda não tenho os arquivos" },
+      { id: "nao_sei_vetorizado", label: "Não sei o que é um arquivo vetorizado" },
     ],
   },
   repeat_layout_check: {

@@ -36,10 +36,11 @@ describe("ONBOARDING_STEPS", () => {
     expect(step.options!.map((o) => o.id)).toContain("indicacao");
   });
 
-  test("files_status tem exatamente 3 opções (cabe em botão)", () => {
+  test("files_status tem 4 opções (acima do limite de botão, vira texto numerado)", () => {
     const step = ONBOARDING_STEPS.files_status;
-    expect(step.options).toHaveLength(3);
-    expect(step.options!.length).toBeLessThanOrEqual(MAX_BUTTON_OPTIONS);
+    expect(step.options).toHaveLength(4);
+    expect(step.options!.length).toBeGreaterThan(MAX_BUTTON_OPTIONS);
+    expect(step.options!.map((o) => o.id)).toContain("nao_sei_vetorizado");
   });
 
   test("todos os steps de choice têm ao menos 2 opções únicas", () => {

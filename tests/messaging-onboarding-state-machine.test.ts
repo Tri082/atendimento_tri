@@ -56,7 +56,7 @@ describe("advanceOnboarding", () => {
   });
 
   test("use_case avança pra layout_status", () => {
-    const r = advanceOnboarding("use_case", { kind: "button", optionId: "fardamento" }, {});
+    const r = advanceOnboarding("use_case", { kind: "button", optionId: "eventos" }, {});
     expect(r).toMatchObject({ ok: true, nextStepId: "layout_status", handoff: false });
   });
 
