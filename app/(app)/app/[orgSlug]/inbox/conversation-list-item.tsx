@@ -1,10 +1,10 @@
 "use client";
 
-import { UserIcon } from "lucide-react";
+import { ClockIcon, UserIcon } from "lucide-react";
 import Link from "next/link";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { formatMessageTime } from "@/lib/messaging/format/time";
+import { formatMessageTime, formatRelative } from "@/lib/messaging/format/time";
 import { cn } from "@/lib/utils";
 import { resolveConversationDisplay } from "./contact-display";
 
@@ -21,6 +21,7 @@ interface Conversation {
   status: string;
   unread_count: number;
   last_message_at: string | null;
+  handoff_requested_at: string | null;
   channel: { id: string; type: string; name: string } | null;
   contact: { id: string; name: string; phone: string | null } | null;
   tags?: { tag: Tag | null }[];
@@ -36,6 +37,7 @@ interface Props {
 export function ConversationListItem({ orgSlug, c, selected }: Props) {
   const display = resolveConversationDisplay(c);
   const tags = (c.tags ?? []).map((t) => t.tag).filter((t): t is Tag => t !== null);
+  const isWaitingHandoff = Boolean(c.handoff_requested_at);
 
   return (
     <Link
@@ -44,7 +46,9 @@ export function ConversationListItem({ orgSlug, c, selected }: Props) {
         "flex gap-3 border-b border-border/60 border-l-2 p-3 transition-colors",
         selected
           ? "border-l-primary bg-muted"
-          : "border-l-transparent hover:bg-muted/50",
+          : isWaitingHandoff
+            ? "border-l-amber-500 bg-amber-500/5 hover:bg-amber-500/10"
+            : "border-l-transparent hover:bg-muted/50",
       )}
     >
       <Avatar className="h-10 w-10">
@@ -59,11 +63,20 @@ export function ConversationListItem({ orgSlug, c, selected }: Props) {
             {formatMessageTime(c.last_message_at)}
           </span>
         </div>
-        <div className="text-xs text-muted-foreground truncate">
-          {c.channel?.name} · {c.status}
-        </div>
-        {c.preview && (
-          <div className="mt-1 text-xs text-muted-foreground truncate">{c.preview}</div>
+        {isWaitingHandoff ? (
+          <div className="flex items-center gap-1 truncate text-xs font-medium text-amber-700">
+            <ClockIcon className="h-3 w-3 shrink-0" />
+            Aguardando atendente · esperando há {formatRelative(c.handoff_requested_at as string)}
+          </div>
+        ) : (
+          <>
+            <div className="text-xs text-muted-foreground truncate">
+              {c.channel?.name} · {c.status}
+            </div>
+            {c.preview && (
+              <div className="mt-1 text-xs text-muted-foreground truncate">{c.preview}</div>
+            )}
+          </>
         )}
         {(tags.length > 0 || c.unread_count > 0) && (
           <div className="mt-2 flex items-center gap-1.5">

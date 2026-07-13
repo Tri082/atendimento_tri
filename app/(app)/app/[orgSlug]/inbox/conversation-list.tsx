@@ -18,6 +18,7 @@ interface Conversation {
   status: string;
   unread_count: number;
   last_message_at: string | null;
+  handoff_requested_at: string | null;
   channel: { id: string; type: string; name: string } | null;
   contact: { id: string; name: string; phone: string | null } | null;
   tags?: { tag: Tag | null }[];
