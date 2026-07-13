@@ -125,4 +125,26 @@ describe("runAgent — modo FAQ-only pós-handoff", () => {
     expect(sentMessage.body).not.toContain("can_escalate");
     expect(sentMessage.body.startsWith("{")).toBe(false);
   });
+
+  test("escalate_to_human chamada no turno: não insere/manda segunda mensagem do texto do modelo", async () => {
+    // A tool escalate_to_human já manda sua própria mensagem determinística
+    // pro cliente (lib/agent/tools/escalate.ts). Se o modelo, mesmo assim,
+    // devolver texto final em result.text, runAgent NÃO pode inserir/enviar
+    // esse texto como uma segunda mensagem — senão o cliente recebe duas.
+    (generateText as ReturnType<typeof vi.fn>).mockResolvedValue({
+      text: "Já chamei alguém pra te ajudar!",
+      usage: { inputTokens: 10, outputTokens: 10 },
+      steps: [
+        {
+          toolCalls: [{ toolName: "escalate_to_human" }],
+        },
+      ],
+    });
+    const capture = { inserts: {} as Record<string, unknown[]>, updates: {} as Record<string, unknown[]> };
+    mockedCreate.mockReturnValue(buildSupabase(null, capture));
+
+    await runAgent({ orgId: "org-1", agentId: "agent-1", conversationId: "conv-1" });
+
+    expect(capture.inserts.messages).toBeUndefined();
+  });
 });

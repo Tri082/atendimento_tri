@@ -11,7 +11,7 @@ vi.mock("@/lib/messaging/outbound-pacing", () => ({
 }));
 
 import { requireOrgMember } from "@/lib/auth/guards";
-import { sendMessageAction } from "@/lib/messaging/actions";
+import { sendMessageAction, sendTemplateAction } from "@/lib/messaging/actions";
 import { createClient } from "@/lib/supabase/server";
 
 const mockedCreate = createClient as unknown as ReturnType<typeof vi.fn>;
@@ -212,6 +212,43 @@ describe("sendMessageAction", () => {
       body: "Oi",
     });
     expect(r.ok).toBe(true);
+  });
+});
+
+describe("sendTemplateAction", () => {
+  beforeEach(() => {
+    mockedCreate.mockReset();
+    mockedAuth.mockReset();
+  });
+
+  test("happy path: envia template e limpa handoff_requested_at", async () => {
+    const sb = makeSupabase({
+      conversation: {
+        id: CONV_ID,
+        organization_id: ORG_ID,
+        channel: { id: "ch-1", type: "mock", config: {} },
+        external_thread_id: "+5511987654321",
+        last_inbound_at: null,
+      },
+    });
+
+    mockedCreate.mockResolvedValue(sb);
+    mockedAuth.mockResolvedValue({
+      user: { id: USER_ID },
+      org: { id: ORG_ID, slug: "acme" },
+      role: "member",
+    });
+
+    const r = await sendTemplateAction({
+      orgSlug: "acme",
+      conversationId: CONV_ID,
+      templateName: "boas_vindas",
+      language: "pt_BR",
+      params: { nome: "João" },
+    });
+
+    expect(r).toEqual({ ok: true, data: { messageId: "msg-new" } });
+    expect(sb.__updates[0]).toMatchObject({ handoff_requested_at: null });
   });
 });
 

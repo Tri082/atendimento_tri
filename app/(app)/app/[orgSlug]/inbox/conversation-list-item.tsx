@@ -64,7 +64,7 @@ export function ConversationListItem({ orgSlug, c, selected }: Props) {
           </span>
         </div>
         {isWaitingHandoff ? (
-          <div className="flex items-center gap-1 truncate text-xs font-medium text-amber-700">
+          <div className="flex items-center gap-1 truncate text-xs font-medium text-amber-700 dark:text-amber-400">
             <ClockIcon className="h-3 w-3 shrink-0" />
             Aguardando atendente · esperando há {formatRelative(c.handoff_requested_at as string)}
           </div>

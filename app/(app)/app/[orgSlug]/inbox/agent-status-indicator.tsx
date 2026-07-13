@@ -18,7 +18,7 @@ export function AgentStatusIndicator({ status, agentName, handoffRequestedAt }: 
   // conversa aguardando handoff é mais urgente que o agente processando.
   if (handoffRequestedAt) {
     return (
-      <div className="flex items-center gap-2 border-b border-border bg-amber-500/10 px-4 py-1.5 text-xs text-amber-700">
+      <div className="flex items-center gap-2 border-b border-border bg-amber-500/10 px-4 py-1.5 text-xs text-amber-700 dark:text-amber-400">
         <ClockIcon className="h-3 w-3" />
         <span>
           Aguardando atendente há {formatRelative(handoffRequestedAt)} — clique em "Assumir" pra

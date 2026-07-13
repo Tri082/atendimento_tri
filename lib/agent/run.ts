@@ -193,22 +193,34 @@ export async function runAgent({ orgId, agentId, conversationId }: RunContext): 
       return;
     }
 
-    const { data: inserted } = await supabase
-      .from("messages")
-      .insert({
-        organization_id: orgId,
-        conversation_id: conversationId,
-        direction: "outbound",
-        sender_kind: "bot",
-        sender_user_id: null,
-        body: responseText,
-        status: "sending",
-      })
-      .select("id")
-      .single();
+    // Se o agente já chamou escalate_to_human nesse turno, a mensagem de
+    // handoff pro cliente já foi enviada de forma determinística pela
+    // própria tool (ver lib/agent/tools/escalate.ts). Não insere/envia
+    // `responseText` de novo aqui — mesmo que o modelo não tenha seguido à
+    // risca a instrução de não mandar mais nada, isso evitaria o cliente
+    // receber DUAS mensagens seguidas.
+    const escalatedThisTurn = (result.steps ?? []).some((s) =>
+      (s.toolCalls ?? []).some((tc) => tc.toolName === "escalate_to_human"),
+    );
 
-    if (inserted?.id) {
-      after(() => processSendOutbound(inserted.id));
+    if (!escalatedThisTurn) {
+      const { data: inserted } = await supabase
+        .from("messages")
+        .insert({
+          organization_id: orgId,
+          conversation_id: conversationId,
+          direction: "outbound",
+          sender_kind: "bot",
+          sender_user_id: null,
+          body: responseText,
+          status: "sending",
+        })
+        .select("id")
+        .single();
+
+      if (inserted?.id) {
+        after(() => processSendOutbound(inserted.id));
+      }
     }
 
     const realTokens = (result.usage?.inputTokens ?? 0) + (result.usage?.outputTokens ?? 0);
