@@ -869,6 +869,7 @@ export type Database = {
           display_name: string | null
           external_thread_id: string
           handled_by: string | null
+          handoff_requested_at: string | null
           id: string
           last_inbound_at: string | null
           last_message_at: string | null
@@ -887,6 +888,7 @@ export type Database = {
           display_name?: string | null
           external_thread_id: string
           handled_by?: string | null
+          handoff_requested_at?: string | null
           id?: string
           last_inbound_at?: string | null
           last_message_at?: string | null
@@ -905,6 +907,7 @@ export type Database = {
           display_name?: string | null
           external_thread_id?: string
           handled_by?: string | null
+          handoff_requested_at?: string | null
           id?: string
           last_inbound_at?: string | null
           last_message_at?: string | null
