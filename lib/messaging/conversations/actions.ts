@@ -48,9 +48,14 @@ export async function resolveConversationAction(input: ResolveConvInput): Promis
   if (!parsed.success) return { ok: false, error: "Dados inválidos" };
   const { org } = await requireOrgMember({ orgSlug: parsed.data.orgSlug });
   const supabase = await createClient();
+  // Limpa handoff_requested_at junto — evita falso alarme no inbox quando a
+  // conversa é resolvida sem uma resposta nova (ex: era spam).
   const { error } = await supabase
     .from("conversations")
-    .update({ status: parsed.data.resolved ? "resolved" : "open" })
+    .update({
+      status: parsed.data.resolved ? "resolved" : "open",
+      handoff_requested_at: null,
+    })
     .eq("id", parsed.data.conversationId)
     .eq("organization_id", org.id);
   if (error) {
