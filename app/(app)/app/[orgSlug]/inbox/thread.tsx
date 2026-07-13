@@ -23,6 +23,7 @@ interface Props {
     id: string;
     status: string;
     agent_status: string;
+    handoff_requested_at: string | null;
     external_thread_id: string;
     display_name: string | null;
     last_inbound_at: string | null;
@@ -46,6 +47,7 @@ export async function Thread({ orgSlug, conversation, messages }: Props) {
       <AgentStatusIndicator
         status={conversation.agent_status as "idle" | "thinking" | "paused_handoff"}
         agentName={conversation.channel?.agent?.name ?? null}
+        handoffRequestedAt={conversation.handoff_requested_at}
       />
       <ThreadHeader
         orgSlug={orgSlug}
