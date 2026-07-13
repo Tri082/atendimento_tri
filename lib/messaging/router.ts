@@ -401,6 +401,25 @@ export async function processInboundMessage(
     return;
   }
 
+  // Confirma leitura da mensagem do cliente antes de responder — sinal
+  // humano básico que faltava (best-effort: nunca bloqueia o fluxo se falhar).
+  if (!isOutbound && insertedMsg) {
+    after(async () => {
+      try {
+        const adapter = getAdapter(channelType);
+        const cfgRow = await getChannelConfigSystem(channel.id);
+        if (adapter.markAsRead && cfgRow) {
+          await adapter.markAsRead(cfgRow.config, {
+            to: externalThread,
+            externalMessageId: event.externalMessageId,
+          });
+        }
+      } catch (err) {
+        logError("messaging.inbound.mark-as-read", err);
+      }
+    });
+  }
+
   // Atualiza timestamps + unread_count
   // Nota: unread_count via read+write (race off-by-one tolerável na foundation;
   // upgrade pra RPC atômica fica pra Sub-projeto C, quando a UI exibir o badge).

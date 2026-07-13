@@ -103,6 +103,19 @@ export const evolutionAdapter: MessagingAdapter = {
     return { unsupported: true };
   },
 
+  async markAsRead(config: unknown, opts: { to: string; externalMessageId: string }): Promise<void> {
+    const cfg = parseCfg(config);
+    await postJson(`${cfg.baseUrl}/chat/markMessageAsRead/${cfg.instanceName}`, cfg.apiKey, {
+      readMessages: [
+        {
+          remoteJid: `${stripPlus(opts.to)}@s.whatsapp.net`,
+          fromMe: false,
+          id: opts.externalMessageId,
+        },
+      ],
+    });
+  },
+
   verifyWebhook(req: VerifyWebhookRequest, channelConfig?: unknown): boolean {
     if (!channelConfig) return false;
     const cfg = evolutionConfigSchema.safeParse(channelConfig);

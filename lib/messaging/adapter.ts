@@ -129,4 +129,11 @@ export interface MessagingAdapter {
     channelConfig: unknown,
     opts: SendButtonsOpts,
   ): Promise<{ externalId: string }>;
+
+  /** Marca uma mensagem inbound como lida (confirmação de leitura pro
+   * contato) — sinal humano básico que faltava antes de a IA responder. */
+  markAsRead?(
+    channelConfig: unknown,
+    opts: { to: string; externalMessageId: string },
+  ): Promise<void>;
 }
