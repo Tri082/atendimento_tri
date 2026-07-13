@@ -182,7 +182,7 @@ async function completeOnboarding(params: {
 
   const { error: handoffError } = await supabase
     .from("conversations")
-    .update({ handled_by: "human" })
+    .update({ handled_by: "human", handoff_requested_at: new Date().toISOString() })
     .eq("id", conversationId)
     .eq("organization_id", orgId);
 

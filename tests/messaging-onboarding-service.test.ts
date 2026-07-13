@@ -218,7 +218,10 @@ describe("advanceOnboardingFromMessage", () => {
 
     // Não reformula de novo — escala (completeOnboarding com reason "stalled")
     expect(updates.conversation_onboarding?.[0]).toMatchObject({ current_step: "completed" });
-    expect(updates.conversations?.[0]).toMatchObject({ handled_by: "human" });
+    expect(updates.conversations?.[0]).toMatchObject({
+      handled_by: "human",
+      handoff_requested_at: expect.any(String),
+    });
     const closingMsg = inserts.messages?.[0] as { body: string };
     expect(closingMsg.body).toMatch(/time/i);
   });
@@ -237,7 +240,10 @@ describe("advanceOnboardingFromMessage", () => {
     });
 
     expect(updates.conversation_onboarding?.[0]).toMatchObject({ current_step: "completed" });
-    expect(updates.conversations?.[0]).toMatchObject({ handled_by: "human" });
+    expect(updates.conversations?.[0]).toMatchObject({
+      handled_by: "human",
+      handoff_requested_at: expect.any(String),
+    });
     expect(updates.contacts?.[0]).toMatchObject({ name: "Maria" });
     expect(assignOwnerAction.execute).toHaveBeenCalledWith(
       { target: "conversation", target_id: CONV_ID, assignee: "round_robin" },
