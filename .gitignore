@@ -51,3 +51,6 @@ next-env.d.ts
 
 # Planos/specs internos do superpowers (artefatos de processo, não código)
 docs/superpowers/
+
+# Worktrees isolados criados pelo fluxo subagent-driven-development
+.worktrees/
