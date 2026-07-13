@@ -149,7 +149,8 @@ describe("advanceOnboardingFromMessage", () => {
       buttonReplyId: null,
     });
 
-    expect(updates.conversation_onboarding).toBeUndefined();
+    // Sem hit na KB: incrementa retry_count (1ª tentativa sem entender)
+    expect(updates.conversation_onboarding?.[0]).toMatchObject({ retry_count: 1 });
     // Só 1 mensagem enviada: a re-pergunta (não achou nada na KB pra responder antes)
     expect(inserts.messages).toHaveLength(1);
     const msg = inserts.messages?.[0] as { provider_metadata?: { buttons?: { id: string }[] } };
@@ -173,7 +174,8 @@ describe("advanceOnboardingFromMessage", () => {
       buttonReplyId: null,
     });
 
-    expect(updates.conversation_onboarding).toBeUndefined();
+    // Achou hit na KB: conta como ter ajudado, zera o retry_count
+    expect(updates.conversation_onboarding?.[0]).toMatchObject({ retry_count: 0 });
     // 2 mensagens: a resposta da KB, seguida da re-pergunta do step pendente
     expect(inserts.messages).toHaveLength(2);
     expect((inserts.messages?.[0] as { body: string }).body).toBe("Entregamos pra todo o Brasil.");
@@ -197,6 +199,28 @@ describe("advanceOnboardingFromMessage", () => {
 
     expect(retrieveContext).not.toHaveBeenCalled();
     expect(inserts.messages).toHaveLength(1);
+  });
+
+  test("depois de MAX_STEP_RETRIES tentativas sem entender, escala pra humano em vez de repetir a pergunta de novo", async () => {
+    const { sb, inserts, updates } = makeSupabase();
+    (interpretChoiceAnswer as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (retrieveContext as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    await advanceOnboardingFromMessage({
+      supabase: sb,
+      orgId: ORG_ID,
+      conversationId: CONV_ID,
+      agentId: "agent-1",
+      onboarding: { currentStepId: "first_order_check", answers: { name: "Maria" }, retryCount: 2 },
+      messageText: "ainda não entendi",
+      buttonReplyId: null,
+    });
+
+    // Não reformula de novo — escala (completeOnboarding com reason "stalled")
+    expect(updates.conversation_onboarding?.[0]).toMatchObject({ current_step: "completed" });
+    expect(updates.conversations?.[0]).toMatchObject({ handled_by: "human" });
+    const closingMsg = inserts.messages?.[0] as { body: string };
+    expect(closingMsg.body).toMatch(/time/i);
   });
 
   test("step final (handoff=true) marca handled_by=human, atribui e atualiza nome do contato", async () => {

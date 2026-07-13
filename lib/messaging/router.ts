@@ -459,7 +459,7 @@ export async function processInboundMessage(
   if (!isOutbound && insertedMsg) {
     const { data: onboardingRow } = await supabase
       .from("conversation_onboarding")
-      .select("current_step, answers")
+      .select("current_step, answers, retry_count")
       .eq("conversation_id", conversationId)
       .eq("organization_id", channel.organization_id)
       .maybeSingle();
@@ -488,6 +488,7 @@ export async function processInboundMessage(
           onboarding: {
             currentStepId: onboardingRow.current_step as OnboardingStepId,
             answers: (onboardingRow.answers ?? {}) as OnboardingAnswers,
+            retryCount: onboardingRow.retry_count ?? 0,
           },
           messageText: event.message?.body ?? null,
           buttonReplyId: event.message?.buttonReplyId ?? null,

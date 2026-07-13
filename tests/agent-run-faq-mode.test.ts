@@ -19,7 +19,7 @@ import { runAgent } from "@/lib/agent/run";
 
 const mockedCreate = createServiceClient as unknown as ReturnType<typeof vi.fn>;
 
-function buildSupabase(handledBy: string | null) {
+function buildSupabase(handledBy: string | null, capture?: { inserts: Record<string, unknown[]>; updates: Record<string, unknown[]> }) {
   return {
     from: (table: string) => ({
       select: () => ({
@@ -60,8 +60,14 @@ function buildSupabase(handledBy: string | null) {
           order: () => ({ limit: async () => ({ data: [], error: null }) }),
         }),
       }),
-      insert: () => ({ select: () => ({ single: async () => ({ data: { id: "run-1" }, error: null }) }) }),
-      update: () => ({ eq: () => ({ error: null }) }),
+      insert: (payload: unknown) => {
+        capture?.inserts[table]?.push(payload) ?? (capture && (capture.inserts[table] = [payload]));
+        return { select: () => ({ single: async () => ({ data: { id: "run-1" }, error: null }) }) };
+      },
+      update: (payload: unknown) => {
+        capture?.updates[table]?.push(payload) ?? (capture && (capture.updates[table] = [payload]));
+        return { eq: () => ({ eq: () => ({ error: null }), error: null }) };
+      },
     }),
     rpc: async () => ({ data: true, error: null }),
   };
@@ -100,5 +106,23 @@ describe("runAgent — modo FAQ-only pós-handoff", () => {
       tools: Record<string, unknown>;
     };
     expect(Object.keys(call.tools).length).toBeGreaterThan(1);
+  });
+
+  test("resposta do modelo em JSON bruto não vai pro cliente — escala e manda mensagem segura", async () => {
+    (generateText as ReturnType<typeof vi.fn>).mockResolvedValue({
+      text: '{"can_escalate":false,"reason":"Cliente respondeu \'1\' sem indicar claramente pedido de falar com humano"}',
+      usage: { inputTokens: 10, outputTokens: 10 },
+      steps: [],
+    });
+    const capture = { inserts: {} as Record<string, unknown[]>, updates: {} as Record<string, unknown[]> };
+    mockedCreate.mockReturnValue(buildSupabase(null, capture));
+
+    await runAgent({ orgId: "org-1", agentId: "agent-1", conversationId: "conv-1" });
+
+    expect(capture.updates.conversations?.[0]).toMatchObject({ agent_status: "paused_handoff" });
+    expect(capture.inserts.tasks?.[0]).toMatchObject({ priority: "high" });
+    const sentMessage = capture.inserts.messages?.[0] as { body: string };
+    expect(sentMessage.body).not.toContain("can_escalate");
+    expect(sentMessage.body.startsWith("{")).toBe(false);
   });
 });

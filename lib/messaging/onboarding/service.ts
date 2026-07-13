@@ -17,18 +17,25 @@ import {
 
 type DB = SupabaseClient<Database>;
 
+// Depois de N tentativas seguidas sem entender a resposta do cliente pro
+// mesmo step, para de reformular (repetir a mesma pergunta) e escala pra
+// humano — sem isso, uma resposta ambígua fazia o roteiro reenviar a pergunta
+// indefinidamente a cada nova mensagem do cliente.
+const MAX_STEP_RETRIES = 2;
+
 async function sendStepQuestion(params: {
   supabase: DB;
   orgId: string;
   conversationId: string;
   stepId: OnboardingStepId;
   answers: OnboardingAnswers;
+  nudge?: boolean;
 }): Promise<void> {
-  const { supabase, orgId, conversationId, stepId, answers } = params;
+  const { supabase, orgId, conversationId, stepId, answers, nudge } = params;
   const stepDef = ONBOARDING_STEPS[stepId];
   const questionText = stepDef.question(answers);
 
-  let body = questionText;
+  let body = nudge ? `Não entendi bem sua resposta 🙏\n\n${questionText}` : questionText;
   let providerMetadata: { buttons: { id: string; title: string }[] } | undefined;
 
   if (stepDef.kind === "choice" && stepDef.options) {
@@ -102,8 +109,9 @@ async function completeOnboarding(params: {
   orgId: string;
   conversationId: string;
   answers: OnboardingAnswers;
+  reason?: "completed" | "stalled";
 }): Promise<void> {
-  const { supabase, orgId, conversationId, answers } = params;
+  const { supabase, orgId, conversationId, answers, reason = "completed" } = params;
 
   // Busca contact_id + handled_by numa query só — reusa pro check de
   // idempotência abaixo E pro rename de contato mais adiante (evita 2
@@ -143,7 +151,10 @@ async function completeOnboarding(params: {
       conversation_id: conversationId,
       direction: "outbound",
       sender_kind: "bot",
-      body: "Perfeito, já anotei tudo! Vou te passar pro nosso time agora, eles continuam seu atendimento por aqui mesmo 🙂",
+      body:
+        reason === "stalled"
+          ? "Vou te passar direto pro nosso time continuar por aqui, tá bom? Eles te ajudam com o que precisar 🙂"
+          : "Perfeito, já anotei tudo! Vou te passar pro nosso time agora, eles continuam seu atendimento por aqui mesmo 🙂",
       status: "sending",
     })
     .select("id")
@@ -207,7 +218,9 @@ async function completeOnboarding(params: {
   }
 
   const summaryLines = [
-    "Qualificação concluída pela Trícia:",
+    reason === "stalled"
+      ? "Qualificação interrompida pela Trícia — cliente não conseguiu responder ao roteiro (respostas não reconhecidas repetidas):"
+      : "Qualificação concluída pela Trícia:",
     answers.name ? `Nome: ${answers.name}` : null,
     answers.isFirstOrder !== undefined ? `Primeiro pedido: ${answers.isFirstOrder ? "sim" : "não"}` : null,
     answers.source ? `Como chegou: ${answers.source}` : null,
@@ -249,12 +262,13 @@ export async function advanceOnboardingFromMessage(params: {
   orgId: string;
   conversationId: string;
   agentId: string | null;
-  onboarding: { currentStepId: OnboardingStepId; answers: OnboardingAnswers };
+  onboarding: { currentStepId: OnboardingStepId; answers: OnboardingAnswers; retryCount?: number };
   messageText: string | null;
   buttonReplyId: string | null;
 }): Promise<void> {
   const { supabase, orgId, conversationId, agentId, onboarding, messageText, buttonReplyId } = params;
   const stepDef = ONBOARDING_STEPS[onboarding.currentStepId];
+  const retryCount = onboarding.retryCount ?? 0;
 
   let input: OnboardingUserInput | null = null;
 
@@ -278,10 +292,12 @@ export async function advanceOnboardingFromMessage(params: {
     : { ok: false as const };
 
   if (!result.ok) {
+    let gotKbHit = false;
     if (agentId && messageText?.trim()) {
       const hits = await retrieveContext(agentId, messageText.trim(), 1);
       const topHit = hits[0];
       if (topHit) {
+        gotKbHit = true;
         const { data: kbMsg, error: kbErr } = await supabase
           .from("messages")
           .insert({
@@ -302,15 +318,43 @@ export async function advanceOnboardingFromMessage(params: {
       }
     }
 
-    // Reformula (reenvia a mesma pergunta) sem avançar o step — seja porque
-    // a resposta não bateu com nenhuma opção, seja depois de responder uma
-    // pergunta fora do roteiro via KB acima.
+    // Achar algo na KB conta como ter ajudado o cliente (não é confusão) —
+    // zera o contador. Sem hit nenhum, é mais uma tentativa sem entender.
+    const newRetryCount = gotKbHit ? 0 : retryCount + 1;
+
+    if (newRetryCount > MAX_STEP_RETRIES) {
+      // Repetir a mesma pergunta indefinidamente é ruim pro cliente e é
+      // exatamente o padrão de conteúdo repetido em rajada que sistemas
+      // antifraude do WhatsApp podem flagar como automação — desiste de
+      // reformular e escala pra humano com o que já foi coletado.
+      await completeOnboarding({
+        supabase,
+        orgId,
+        conversationId,
+        answers: onboarding.answers,
+        reason: "stalled",
+      });
+      return;
+    }
+
+    const { error: retryUpdateError } = await supabase
+      .from("conversation_onboarding")
+      .update({ retry_count: newRetryCount })
+      .eq("conversation_id", conversationId)
+      .eq("organization_id", orgId);
+    if (retryUpdateError) logError("onboarding.retry-count-update", retryUpdateError);
+
+    // Reformula (reenvia a pergunta, com um aviso a partir da 1ª tentativa
+    // sem entender) sem avançar o step — seja porque a resposta não bateu
+    // com nenhuma opção, seja depois de responder uma pergunta fora do
+    // roteiro via KB acima.
     await sendStepQuestion({
       supabase,
       orgId,
       conversationId,
       stepId: onboarding.currentStepId,
       answers: onboarding.answers,
+      nudge: newRetryCount > 0,
     });
     return;
   }
@@ -320,6 +364,7 @@ export async function advanceOnboardingFromMessage(params: {
     .update({
       current_step: result.nextStepId,
       answers: result.answers as unknown as Database["public"]["Tables"]["conversation_onboarding"]["Update"]["answers"],
+      retry_count: 0,
     })
     .eq("conversation_id", conversationId)
     .eq("organization_id", orgId);

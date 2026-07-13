@@ -762,6 +762,7 @@ export type Database = {
           id: string
           is_first_order: boolean | null
           organization_id: string
+          retry_count: number
           updated_at: string
         }
         Insert: {
@@ -773,6 +774,7 @@ export type Database = {
           id?: string
           is_first_order?: boolean | null
           organization_id: string
+          retry_count?: number
           updated_at?: string
         }
         Update: {
@@ -784,6 +786,7 @@ export type Database = {
           id?: string
           is_first_order?: boolean | null
           organization_id?: string
+          retry_count?: number
           updated_at?: string
         }
         Relationships: [

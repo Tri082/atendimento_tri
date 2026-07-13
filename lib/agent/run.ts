@@ -13,6 +13,24 @@ const ESTIMATED_TOKENS = 6000;
 const MAX_STEPS = 5;
 const MAX_OUTPUT_TOKENS = 1024;
 
+/**
+ * Às vezes o modelo, em vez de chamar `escalate_to_human` ou responder em
+ * prosa normal, "vaza" um raciocínio interno em formato de objeto (ex:
+ * {"can_escalate":false,"reason":"..."}) como se fosse a resposta final —
+ * e isso ia direto pro WhatsApp do cliente. Detecta esse formato pra nunca
+ * mandar pro cliente.
+ */
+function looksLikeRawStructuredOutput(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return false;
+  try {
+    JSON.parse(trimmed);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 interface RunContext {
   orgId: string;
   agentId: string;
@@ -131,7 +149,32 @@ export async function runAgent({ orgId, agentId, conversationId }: RunContext): 
       maxOutputTokens: MAX_OUTPUT_TOKENS,
     });
 
-    const responseText = result.text?.trim();
+    let responseText = result.text?.trim();
+
+    if (responseText && looksLikeRawStructuredOutput(responseText)) {
+      logError(
+        "agent.run.malformed-response",
+        new Error(`Modelo retornou saída não-conversacional, escalando: ${responseText.slice(0, 500)}`),
+      );
+
+      await supabase
+        .from("conversations")
+        .update({ agent_status: "paused_handoff" })
+        .eq("id", conversationId)
+        .eq("organization_id", orgId);
+
+      await supabase.from("tasks").insert({
+        organization_id: orgId,
+        contact_id: conv.contact_id,
+        title: `Conversa escalada: resposta da IA malformada`,
+        description: `A IA gerou uma saída não-conversacional (provável raciocínio interno vazado) em vez de responder ou chamar escalate_to_human. Texto bruto: ${responseText.slice(0, 500)}`,
+        priority: "high",
+        status: "pending",
+      });
+
+      responseText = "Deixa eu confirmar uma coisa com nosso time e já te retorno por aqui, tá bom?";
+    }
+
     if (!responseText) {
       if (runId) {
         await supabase
