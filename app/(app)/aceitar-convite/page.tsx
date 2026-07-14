@@ -25,13 +25,30 @@ export default async function AcceptInvitePage({ searchParams }: Props) {
   const supabase = await createClient();
   const { data: invite } = await supabase
     .from("invitations")
-    .select(
-      "email, role, expires_at, accepted_at, organization_id, organization:organizations(name, slug)",
-    )
+    .select("email, role, expires_at, accepted_at, organization_id")
     .eq("token", token)
     .maybeSingle();
 
   if (!invite) {
+    return (
+      <Centered>
+        <h1 className="font-semibold text-2xl">Convite inválido</h1>
+        <p className="text-muted-foreground text-sm">
+          Esse link de convite não existe ou foi cancelado.
+        </p>
+      </Centered>
+    );
+  }
+
+  // RLS de `organizations` só libera leitura pra quem já é membro — mas quem
+  // tá aceitando um convite ainda NÃO é membro (esse é o objetivo do
+  // convite). Por isso o nome/slug vêm de uma função separada que resolve
+  // pelo token, sem exigir ser membro (ver migration get_invitation_organization).
+  const { data: org } = await supabase
+    .rpc("get_invitation_organization", { _token: token })
+    .maybeSingle();
+
+  if (!org) {
     return (
       <Centered>
         <h1 className="font-semibold text-2xl">Convite inválido</h1>
@@ -61,8 +78,6 @@ export default async function AcceptInvitePage({ searchParams }: Props) {
       </Centered>
     );
   }
-
-  const org = invite.organization as unknown as { name: string; slug: string };
 
   if (!user) {
     return (

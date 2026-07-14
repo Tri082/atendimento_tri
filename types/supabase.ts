@@ -1598,6 +1598,13 @@ export type Database = {
         }[]
       }
       current_user_email: { Args: never; Returns: string }
+      get_invitation_organization: {
+        Args: { _token: string }
+        Returns: {
+          name: string
+          slug: string
+        }[]
+      }
       has_org_role: {
         Args: {
           _org_id: string
