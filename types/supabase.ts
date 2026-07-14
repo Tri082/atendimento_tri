@@ -1598,6 +1598,16 @@ export type Database = {
         }[]
       }
       current_user_email: { Args: never; Returns: string }
+      get_invitation_by_token: {
+        Args: { _token: string }
+        Returns: {
+          accepted_at: string
+          email: string
+          expires_at: string
+          organization_id: string
+          role: Database["public"]["Enums"]["org_role"]
+        }[]
+      }
       get_invitation_organization: {
         Args: { _token: string }
         Returns: {

@@ -80,9 +80,17 @@ as $$
   );
 $$;
 
-revoke execute on function public.is_org_member(uuid) from public, anon;
-grant execute on function public.is_org_member(uuid) to authenticated;
+grant execute on function public.is_org_member(uuid) to authenticated, anon;
 ```
+
+**IMPORTANTE — grant pra `anon` também é necessário.** A função já trata
+`auth.uid()` nulo direito (`exists(...)` some vira `false`, não vaza nada),
+mas se `anon` não tiver EXECUTE, qualquer policy de RLS que chama a função
+(ou seja, quase toda tabela de domínio) quebra com erro real do Postgres
+(`permission denied for function is_org_member`) assim que um visitante
+deslogado esbarra numa dessas tabelas — não é um "sem acesso" silencioso,
+derruba a página inteira (ex: página pública `/aceitar-convite` lendo
+`invitations`). Corrigido em `20260714190000_grant_rls_helpers_to_anon.sql`.
 
 ### Triggers obrigatórios
 

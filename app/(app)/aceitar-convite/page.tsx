@@ -24,9 +24,7 @@ export default async function AcceptInvitePage({ searchParams }: Props) {
 
   const supabase = await createClient();
   const { data: invite } = await supabase
-    .from("invitations")
-    .select("email, role, expires_at, accepted_at, organization_id")
-    .eq("token", token)
+    .rpc("get_invitation_by_token", { _token: token })
     .maybeSingle();
 
   if (!invite) {

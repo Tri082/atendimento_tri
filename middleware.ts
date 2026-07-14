@@ -2,7 +2,14 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 
-const PUBLIC_PATHS = ["/", "/login", "/signup", "/reset-password", "/verify-email"];
+const PUBLIC_PATHS = [
+  "/",
+  "/login",
+  "/signup",
+  "/reset-password",
+  "/verify-email",
+  "/aceitar-convite",
+];
 
 /**
  * M3: whitelist de extensões estáticas.
