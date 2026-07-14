@@ -84,7 +84,11 @@ describe("runAgent — modo FAQ-only pós-handoff", () => {
     });
   });
 
-  test("handled_by='human' restringe tools a search_knowledge_base", async () => {
+  test("handled_by='human' restringe tools a search_knowledge_base + escalate_to_human", async () => {
+    // Depois do handoff do onboarding, handled_by fica 'human' pra sempre —
+    // sem escalate_to_human também nesse modo, a IA nunca mais consegue
+    // acender o destaque de "aguardando atendente" nessa conversa, mesmo
+    // que o cliente precise de humano de novo dias depois.
     mockedCreate.mockReturnValue(buildSupabase("human"));
 
     await runAgent({ orgId: "org-1", agentId: "agent-1", conversationId: "conv-1" });
@@ -93,7 +97,7 @@ describe("runAgent — modo FAQ-only pós-handoff", () => {
       tools: Record<string, unknown>;
       system: string;
     };
-    expect(Object.keys(call.tools)).toEqual(["search_knowledge_base"]);
+    expect(Object.keys(call.tools)).toEqual(["search_knowledge_base", "escalate_to_human"]);
     expect(call.system).toContain("já foi transferida pra um atendente humano");
   });
 

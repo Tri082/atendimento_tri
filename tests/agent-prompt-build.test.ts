@@ -58,11 +58,16 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("create_contact");
   });
 
-  test("modo faq_only restringe a search_knowledge_base e proíbe preço/design", () => {
+  test("modo faq_only restringe tools de CRM e proíbe preço/design", () => {
     const prompt = buildSystemPrompt(baseSettings, "", "faq_only");
     expect(prompt).toContain("search_knowledge_base");
     expect(prompt).not.toContain("create_contact");
-    expect(prompt.toLowerCase()).toContain("vou verificar com nossa equipe");
     expect(prompt.toLowerCase()).toMatch(/nunca fale de preço|nunca.*orçamento/);
+  });
+
+  test("modo faq_only também expõe escalate_to_human e instrui escalar quando a base não tem resposta", () => {
+    const prompt = buildSystemPrompt(baseSettings, "", "faq_only");
+    expect(prompt).toContain("escalate_to_human");
+    expect(prompt.toLowerCase()).toMatch(/chame escalate_to_human/);
   });
 });

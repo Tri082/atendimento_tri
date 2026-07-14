@@ -134,8 +134,14 @@ export async function runAgent({ orgId, agentId, conversationId }: RunContext): 
       contactId: conv.contact_id,
       supabase,
     });
+    // escalate_to_human também disponível em faq_only: sem ele, uma conversa
+    // que já passou pelo handoff do onboarding nunca mais consegue acender o
+    // destaque de "aguardando atendente" (handled_by='human' nunca é
+    // desfeito), mesmo que o cliente precise de humano de novo depois.
     const tools =
-      mode === "faq_only" ? { search_knowledge_base: allTools.search_knowledge_base } : allTools;
+      mode === "faq_only"
+        ? { search_knowledge_base: allTools.search_knowledge_base, escalate_to_human: allTools.escalate_to_human }
+        : allTools;
 
     const result = await generateText({
       model: getLanguageModel({

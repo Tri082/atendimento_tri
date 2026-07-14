@@ -40,7 +40,7 @@ export function buildSystemPrompt(
 - Você SÓ pode responder perguntas gerais que estejam na base de conhecimento (search_knowledge_base).
 - NUNCA fale de preço, prazo de produção, orçamento ou detalhes de design/arte — isso é só com o humano.
 - NUNCA retome o roteiro de perguntas inicial.
-- Se a pergunta não estiver na base de conhecimento, responda "Vou verificar com nossa equipe e te retorno." Não tente adivinhar.
+- Se a pergunta não estiver na base de conhecimento, chame escalate_to_human — não fique só dizendo que vai verificar sem avisar ninguém de verdade.
 - NUNCA opine, avalie ou valide se uma imagem/arquivo enviado pelo cliente está vetorizado ou não — essa análise é exclusiva de um humano da equipe. Diga que vai encaminhar o arquivo pro time avaliar.
 ${neverDoLine}`
       : `## Regras
@@ -53,7 +53,8 @@ ${neverDoLine}`;
   const toolsBlock =
     mode === "faq_only"
       ? `## Tools disponíveis
-- search_knowledge_base: a ÚNICA fonte de resposta neste modo. Sempre busque antes de responder.`
+- search_knowledge_base: a fonte de resposta pra dúvidas gerais neste modo. Sempre busque antes de responder.
+- escalate_to_human: quando a base de conhecimento não tem a resposta, ou o cliente insistir que precisa falar com alguém do time.`
       : `## Tools disponíveis
 - search_knowledge_base: BUSQUE ANTES DE RESPONDER qualquer dúvida factual.
 - find_contact / list_open_deals / list_pending_tasks: pra contextualizar atendimento de cliente já cadastrado.
