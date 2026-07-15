@@ -272,7 +272,6 @@ describe("processInboundMessage", () => {
         orgId: ORG_ID,
         conversationId: CONV_ID,
         agentId: null,
-        onboarding: { currentStepId: "first_order_check", answers: { name: "Maria" }, retryCount: 0 },
         messageText: "Sim",
       }),
     );

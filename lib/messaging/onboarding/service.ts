@@ -23,6 +23,74 @@ type DB = SupabaseClient<Database>;
 // indefinidamente a cada nova mensagem do cliente.
 const MAX_STEP_RETRIES = 2;
 
+const LOCK_RETRY_MS = 300;
+const LOCK_MAX_WAIT_MS = 8000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Serializa o processamento de onboarding por conversa. Reaproveita o mesmo
+ * lock condicional que o agente de IA usa (`conversations.agent_status`
+ * 'idle' → 'thinking', ver `lib/agent/trigger.ts`) — sem isso, duas
+ * mensagens do cliente chegando quase juntas (ex: "Oi" e "Bom dia" em
+ * sequência) disparam duas chamadas concorrentes que leem o MESMO
+ * `conversation_onboarding` desatualizado e cada uma decide/responde sem
+ * saber da outra: pergunta repetida, nudge fora de contexto, step
+ * incoerente — a Trícia "se enrola".
+ *
+ * Diferente do agente de IA, que desiste quando o lock já está ocupado
+ * (a próxima rodada vai reler o histórico inteiro da conversa), o onboarding
+ * processa UMA mensagem específica por chamada — desistir perderia a
+ * resposta do cliente. Por isso esperamos a vez (retry) em vez de desistir,
+ * com um teto de espera pra não travar pra sempre se algo já deixou a
+ * conversa presa em 'thinking' (o cron de recovery libera isso em 5min).
+ */
+async function withConversationLock<T>(
+  supabase: DB,
+  conversationId: string,
+  fn: () => Promise<T>,
+): Promise<T | undefined> {
+  const deadline = Date.now() + LOCK_MAX_WAIT_MS;
+  let acquired = false;
+
+  for (;;) {
+    const { data: locked } = await supabase
+      .from("conversations")
+      .update({ agent_status: "thinking", agent_thinking_started_at: new Date().toISOString() })
+      .eq("id", conversationId)
+      .eq("agent_status", "idle")
+      .select("id")
+      .maybeSingle();
+
+    if (locked) {
+      acquired = true;
+      break;
+    }
+    if (Date.now() >= deadline) break;
+    await sleep(LOCK_RETRY_MS);
+  }
+
+  if (!acquired) {
+    logError(
+      "onboarding.lock-timeout",
+      new Error(`Não conseguiu lock pra conversation ${conversationId} após ${LOCK_MAX_WAIT_MS}ms — desistindo desta mensagem.`),
+    );
+    return undefined;
+  }
+
+  try {
+    return await fn();
+  } finally {
+    await supabase
+      .from("conversations")
+      .update({ agent_status: "idle", agent_thinking_started_at: null })
+      .eq("id", conversationId)
+      .eq("agent_status", "thinking");
+  }
+}
+
 async function sendStepQuestion(params: {
   supabase: DB;
   orgId: string;
@@ -80,27 +148,43 @@ export async function startOnboarding(params: {
 }): Promise<void> {
   const { supabase, orgId, conversationId } = params;
 
-  const { error } = await supabase.from("conversation_onboarding").upsert(
-    {
-      organization_id: orgId,
-      conversation_id: conversationId,
-      current_step: "greeting_name",
+  await withConversationLock(supabase, conversationId, async () => {
+    // Idempotência: quando duas mensagens do MESMO cliente chegam como a
+    // primeira interação quase simultaneamente, o INSERT de `conversations`
+    // no router pode colidir (UNIQUE) e os dois webhooks concorrentes
+    // marcam `isNewConversation=true` — os dois chamam startOnboarding.
+    // Sem esse check, o segundo sobrescreveria o step de volta pra
+    // 'greeting_name' e reenviaria a saudação, duplicando a mensagem.
+    const { data: existing } = await supabase
+      .from("conversation_onboarding")
+      .select("conversation_id")
+      .eq("conversation_id", conversationId)
+      .eq("organization_id", orgId)
+      .maybeSingle();
+    if (existing) return;
+
+    const { error } = await supabase.from("conversation_onboarding").upsert(
+      {
+        organization_id: orgId,
+        conversation_id: conversationId,
+        current_step: "greeting_name",
+        answers: {},
+      },
+      { onConflict: "conversation_id" },
+    );
+
+    if (error) {
+      logError("onboarding.start", error);
+      return;
+    }
+
+    await sendStepQuestion({
+      supabase,
+      orgId,
+      conversationId,
+      stepId: "greeting_name",
       answers: {},
-    },
-    { onConflict: "conversation_id" },
-  );
-
-  if (error) {
-    logError("onboarding.start", error);
-    return;
-  }
-
-  await sendStepQuestion({
-    supabase,
-    orgId,
-    conversationId,
-    stepId: "greeting_name",
-    answers: {},
+    });
   });
 }
 
@@ -256,19 +340,64 @@ async function completeOnboarding(params: {
  * com uma pergunta pontual (ex: "vocês entregam pra outro estado?"). Manda
  * o trecho da KB (sem parafrasear via LLM — mantém simples e sem risco de
  * alucinação) e, na sequência, retoma a pergunta pendente. Sem hit na KB
- * (ou sem `agentId`), cai no comportamento padrão: só reformula. */
+ * (ou sem `agentId`), cai no comportamento padrão: só reformula.
+ *
+ * NÃO recebe o estado do onboarding do caller — adquire o lock da conversa
+ * primeiro e só então relê `conversation_onboarding` do banco. Um snapshot
+ * passado pelo caller ficaria desatualizado justamente no cenário que esse
+ * lock existe pra cobrir (2 mensagens quase simultâneas, ver
+ * `withConversationLock`). */
 export async function advanceOnboardingFromMessage(params: {
   supabase: DB;
   orgId: string;
   conversationId: string;
   agentId: string | null;
-  onboarding: { currentStepId: OnboardingStepId; answers: OnboardingAnswers; retryCount?: number };
+  messageText: string | null;
+  buttonReplyId: string | null;
+}): Promise<void> {
+  const { supabase, orgId, conversationId, agentId, messageText, buttonReplyId } = params;
+
+  await withConversationLock(supabase, conversationId, async () => {
+    const { data: row } = await supabase
+      .from("conversation_onboarding")
+      .select("current_step, answers, retry_count")
+      .eq("conversation_id", conversationId)
+      .eq("organization_id", orgId)
+      .maybeSingle();
+
+    // Sem linha (nunca deveria acontecer — router só chama isto quando já
+    // viu uma linha) ou já completado nesse meio tempo por outra mensagem
+    // concorrente: nada a fazer.
+    if (!row || row.current_step === "completed") return;
+
+    await runOnboardingStep({
+      supabase,
+      orgId,
+      conversationId,
+      agentId,
+      onboarding: {
+        currentStepId: row.current_step as OnboardingStepId,
+        answers: (row.answers ?? {}) as OnboardingAnswers,
+        retryCount: row.retry_count ?? 0,
+      },
+      messageText,
+      buttonReplyId,
+    });
+  });
+}
+
+async function runOnboardingStep(params: {
+  supabase: DB;
+  orgId: string;
+  conversationId: string;
+  agentId: string | null;
+  onboarding: { currentStepId: OnboardingStepId; answers: OnboardingAnswers; retryCount: number };
   messageText: string | null;
   buttonReplyId: string | null;
 }): Promise<void> {
   const { supabase, orgId, conversationId, agentId, onboarding, messageText, buttonReplyId } = params;
   const stepDef = ONBOARDING_STEPS[onboarding.currentStepId];
-  const retryCount = onboarding.retryCount ?? 0;
+  const retryCount = onboarding.retryCount;
 
   let input: OnboardingUserInput | null = null;
 

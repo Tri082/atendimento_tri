@@ -13,7 +13,6 @@ import {
   advanceOnboardingFromMessage,
   startOnboarding,
 } from "./onboarding/service";
-import type { OnboardingAnswers, OnboardingStepId } from "./onboarding/script";
 import { getAdapter } from "./registry";
 
 const STATUS_RANK: Record<string, number> = {
@@ -476,9 +475,15 @@ export async function processInboundMessage(
   // acionado (ver condição abaixo) — o roteiro é quem responde.
   let onboardingActive = false;
   if (!isOutbound && insertedMsg) {
+    // Só usada aqui pra decidir QUAL função disparar — a função disparada
+    // relê o estado fresco do banco por conta própria, depois de garantir
+    // exclusividade via lock (ver withConversationLock em onboarding/service.ts).
+    // Um snapshot capturado aqui e repassado adiante ficaria desatualizado
+    // exatamente no cenário que esse lock existe pra cobrir (2 mensagens do
+    // cliente chegando quase juntas).
     const { data: onboardingRow } = await supabase
       .from("conversation_onboarding")
-      .select("current_step, answers, retry_count")
+      .select("current_step")
       .eq("conversation_id", conversationId)
       .eq("organization_id", channel.organization_id)
       .maybeSingle();
@@ -504,11 +509,6 @@ export async function processInboundMessage(
           orgId: channel.organization_id,
           conversationId,
           agentId: channel.agent_id ?? null,
-          onboarding: {
-            currentStepId: onboardingRow.current_step as OnboardingStepId,
-            answers: (onboardingRow.answers ?? {}) as OnboardingAnswers,
-            retryCount: onboardingRow.retry_count ?? 0,
-          },
           messageText: event.message?.body ?? null,
           buttonReplyId: event.message?.buttonReplyId ?? null,
         }),

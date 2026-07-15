@@ -22,11 +22,37 @@ import { advanceOnboardingFromMessage, startOnboarding } from "@/lib/messaging/o
 const ORG_ID = "org-1";
 const CONV_ID = "conv-1";
 
-function makeSupabase(opts?: { handledBy?: string | null }) {
+/**
+ * Fake com estado real (não só recorder de chamadas) pras tabelas tocadas
+ * pelo lock (`conversations.agent_status`) e pelo estado de onboarding —
+ * `advanceOnboardingFromMessage`/`startOnboarding` agora releem essas
+ * tabelas do banco em vez de confiar num snapshot passado pelo caller (ver
+ * tests/messaging-onboarding-lock.test.ts pro motivo).
+ */
+function makeSupabase(opts?: {
+  handledBy?: string | null;
+  onboardingRow?: { current_step: string; answers: Record<string, unknown>; retry_count?: number };
+}) {
   const inserts: Record<string, unknown[]> = {};
   const updates: Record<string, unknown[]> = {};
   const upserts: Record<string, unknown[]> = {};
-  const handledBy = opts?.handledBy ?? null;
+
+  const conversation: Record<string, unknown> = {
+    id: CONV_ID,
+    agent_status: "idle",
+    agent_thinking_started_at: null,
+    contact_id: "contact-1",
+    handled_by: opts?.handledBy ?? null,
+  };
+  let onboardingRow: Record<string, unknown> | null = opts?.onboardingRow
+    ? {
+        conversation_id: CONV_ID,
+        organization_id: ORG_ID,
+        current_step: opts.onboardingRow.current_step,
+        answers: opts.onboardingRow.answers,
+        retry_count: opts.onboardingRow.retry_count ?? 0,
+      }
+    : null;
 
   const sb = {
     from: (table: string) => ({
@@ -35,34 +61,59 @@ function makeSupabase(opts?: { handledBy?: string | null }) {
         inserts[table].push(payload);
         return { select: () => ({ single: async () => ({ data: { id: `${table}-new` }, error: null }) }) };
       },
-      upsert: (payload: unknown) => {
+      upsert: (payload: Record<string, unknown>) => {
         upserts[table] = upserts[table] ?? [];
         upserts[table].push(payload);
+        if (table === "conversation_onboarding") {
+          onboardingRow = {
+            conversation_id: CONV_ID,
+            organization_id: ORG_ID,
+            retry_count: 0,
+            ...payload,
+          };
+        }
         return { select: () => ({ single: async () => ({ data: { id: `${table}-upserted` }, error: null }) }) };
       },
-      update: (payload: unknown) => {
+      update: (payload: Record<string, unknown>) => {
         updates[table] = updates[table] ?? [];
         updates[table].push(payload);
-        return { eq: () => ({ eq: () => ({ error: null }), error: null }) };
+        const builder = {
+          eq: (_col: string, _val: unknown) => builder,
+          select: (_cols?: string) => ({
+            maybeSingle: async () => {
+              if (table === "conversations") {
+                Object.assign(conversation, payload);
+                return { data: { id: conversation.id }, error: null };
+              }
+              return { data: null, error: null };
+            },
+          }),
+          then: (resolve: (v: unknown) => void) => {
+            if (table === "conversations") Object.assign(conversation, payload);
+            if (table === "conversation_onboarding" && onboardingRow) Object.assign(onboardingRow, payload);
+            resolve({ error: null });
+          },
+        };
+        return builder;
       },
       select: () => ({
         eq: () => ({
           eq: () => ({
-            maybeSingle: async () => ({
-              data: { contact_id: "contact-1", handled_by: handledBy },
-              error: null,
-            }),
+            maybeSingle: async () => {
+              if (table === "conversation_onboarding") return { data: onboardingRow, error: null };
+              return { data: { contact_id: "contact-1", handled_by: conversation.handled_by }, error: null };
+            },
           }),
-          maybeSingle: async () => ({
-            data: { contact_id: "contact-1", handled_by: handledBy },
-            error: null,
-          }),
+          maybeSingle: async () => {
+            if (table === "conversation_onboarding") return { data: onboardingRow, error: null };
+            return { data: { contact_id: "contact-1", handled_by: conversation.handled_by }, error: null };
+          },
         }),
       }),
     }),
   };
 
-  return { sb: sb as never, inserts, updates, upserts };
+  return { sb: sb as never, inserts, updates, upserts, conversation };
 }
 
 describe("startOnboarding", () => {
@@ -87,20 +138,32 @@ describe("startOnboarding", () => {
     expect(inserts.messages?.[0]).toHaveProperty("body");
     expect(processSendOutbound).toHaveBeenCalledWith("messages-new");
   });
+
+  test("idempotente: se a linha de onboarding já existe (webhook duplicado concorrente), não reenvia a saudação", async () => {
+    const { sb, inserts, upserts } = makeSupabase({
+      onboardingRow: { current_step: "greeting_name", answers: {} },
+    });
+
+    await startOnboarding({ supabase: sb, orgId: ORG_ID, conversationId: CONV_ID });
+
+    expect(upserts.conversation_onboarding).toBeUndefined();
+    expect(inserts.messages).toBeUndefined();
+  });
 });
 
 describe("advanceOnboardingFromMessage", () => {
   beforeEach(() => vi.clearAllMocks());
 
   test("step de texto (greeting_name) avança e manda a próxima pergunta (botão, <=3 opções)", async () => {
-    const { sb, inserts, updates } = makeSupabase();
+    const { sb, inserts, updates } = makeSupabase({
+      onboardingRow: { current_step: "greeting_name", answers: {} },
+    });
 
     await advanceOnboardingFromMessage({
       supabase: sb,
       orgId: ORG_ID,
       conversationId: CONV_ID,
       agentId: "agent-1",
-      onboarding: { currentStepId: "greeting_name", answers: {} },
       messageText: "Maria",
       buttonReplyId: null,
     });
@@ -116,14 +179,15 @@ describe("advanceOnboardingFromMessage", () => {
   });
 
   test("step de choice com >3 opções manda texto numerado (sem provider_metadata.buttons)", async () => {
-    const { sb, inserts } = makeSupabase();
+    const { sb, inserts } = makeSupabase({
+      onboardingRow: { current_step: "first_order_check", answers: { name: "Maria" } },
+    });
 
     await advanceOnboardingFromMessage({
       supabase: sb,
       orgId: ORG_ID,
       conversationId: CONV_ID,
       agentId: "agent-1",
-      onboarding: { currentStepId: "first_order_check", answers: { name: "Maria" } },
       messageText: null,
       buttonReplyId: "sim",
     });
@@ -135,7 +199,9 @@ describe("advanceOnboardingFromMessage", () => {
   });
 
   test("resposta em texto livre não reconhecida, sem hit na KB, re-pergunta o mesmo step (não avança)", async () => {
-    const { sb, updates, inserts } = makeSupabase();
+    const { sb, updates, inserts } = makeSupabase({
+      onboardingRow: { current_step: "first_order_check", answers: { name: "Maria" } },
+    });
     (interpretChoiceAnswer as ReturnType<typeof vi.fn>).mockResolvedValue(null);
     (retrieveContext as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
@@ -144,7 +210,6 @@ describe("advanceOnboardingFromMessage", () => {
       orgId: ORG_ID,
       conversationId: CONV_ID,
       agentId: "agent-1",
-      onboarding: { currentStepId: "first_order_check", answers: { name: "Maria" } },
       messageText: "não entendi a pergunta",
       buttonReplyId: null,
     });
@@ -158,7 +223,9 @@ describe("advanceOnboardingFromMessage", () => {
   });
 
   test("cliente foge do roteiro com pergunta que bate na KB: responde a KB e retoma a pergunta pendente", async () => {
-    const { sb, updates, inserts } = makeSupabase();
+    const { sb, updates, inserts } = makeSupabase({
+      onboardingRow: { current_step: "first_order_check", answers: { name: "Maria" } },
+    });
     (interpretChoiceAnswer as ReturnType<typeof vi.fn>).mockResolvedValue(null);
     (retrieveContext as ReturnType<typeof vi.fn>).mockResolvedValue([
       { kind: "faq", source_id: "faq-1", title: "Entrega", content: "Entregamos pra todo o Brasil.", similarity: 0.8 },
@@ -169,7 +236,6 @@ describe("advanceOnboardingFromMessage", () => {
       orgId: ORG_ID,
       conversationId: CONV_ID,
       agentId: "agent-1",
-      onboarding: { currentStepId: "first_order_check", answers: { name: "Maria" } },
       messageText: "vocês entregam pra outro estado?",
       buttonReplyId: null,
     });
@@ -184,7 +250,9 @@ describe("advanceOnboardingFromMessage", () => {
   });
 
   test("sem agentId, não tenta buscar na KB — só re-pergunta", async () => {
-    const { sb, inserts } = makeSupabase();
+    const { sb, inserts } = makeSupabase({
+      onboardingRow: { current_step: "first_order_check", answers: { name: "Maria" } },
+    });
     (interpretChoiceAnswer as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
     await advanceOnboardingFromMessage({
@@ -192,7 +260,6 @@ describe("advanceOnboardingFromMessage", () => {
       orgId: ORG_ID,
       conversationId: CONV_ID,
       agentId: null,
-      onboarding: { currentStepId: "first_order_check", answers: { name: "Maria" } },
       messageText: "vocês entregam pra outro estado?",
       buttonReplyId: null,
     });
@@ -202,7 +269,9 @@ describe("advanceOnboardingFromMessage", () => {
   });
 
   test("depois de MAX_STEP_RETRIES tentativas sem entender, escala pra humano em vez de repetir a pergunta de novo", async () => {
-    const { sb, inserts, updates } = makeSupabase();
+    const { sb, inserts, updates } = makeSupabase({
+      onboardingRow: { current_step: "first_order_check", answers: { name: "Maria" }, retry_count: 2 },
+    });
     (interpretChoiceAnswer as ReturnType<typeof vi.fn>).mockResolvedValue(null);
     (retrieveContext as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
@@ -211,14 +280,19 @@ describe("advanceOnboardingFromMessage", () => {
       orgId: ORG_ID,
       conversationId: CONV_ID,
       agentId: "agent-1",
-      onboarding: { currentStepId: "first_order_check", answers: { name: "Maria" }, retryCount: 2 },
       messageText: "ainda não entendi",
       buttonReplyId: null,
     });
 
     // Não reformula de novo — escala (completeOnboarding com reason "stalled")
     expect(updates.conversation_onboarding?.[0]).toMatchObject({ current_step: "completed" });
-    expect(updates.conversations?.[0]).toMatchObject({
+    // updates.conversations também recebe as escritas do lock (thinking/idle)
+    // — procura especificamente a que marca o handoff.
+    const handoffUpdate = updates.conversations?.find(
+      (u): u is { handled_by: string; handoff_requested_at: string } =>
+        (u as { handled_by?: string }).handled_by === "human",
+    );
+    expect(handoffUpdate).toMatchObject({
       handled_by: "human",
       handoff_requested_at: expect.any(String),
     });
@@ -227,20 +301,25 @@ describe("advanceOnboardingFromMessage", () => {
   });
 
   test("step final (handoff=true) marca handled_by=human, atribui e atualiza nome do contato", async () => {
-    const { sb, updates } = makeSupabase();
+    const { sb, updates } = makeSupabase({
+      onboardingRow: { current_step: "files_status", answers: { name: "Maria" } },
+    });
 
     await advanceOnboardingFromMessage({
       supabase: sb,
       orgId: ORG_ID,
       conversationId: CONV_ID,
       agentId: "agent-1",
-      onboarding: { currentStepId: "files_status", answers: { name: "Maria" } },
       messageText: null,
       buttonReplyId: "sim_vetorizado",
     });
 
     expect(updates.conversation_onboarding?.[0]).toMatchObject({ current_step: "completed" });
-    expect(updates.conversations?.[0]).toMatchObject({
+    const handoffUpdate = updates.conversations?.find(
+      (u): u is { handled_by: string; handoff_requested_at: string } =>
+        (u as { handled_by?: string }).handled_by === "human",
+    );
+    expect(handoffUpdate).toMatchObject({
       handled_by: "human",
       handoff_requested_at: expect.any(String),
     });
@@ -252,14 +331,16 @@ describe("advanceOnboardingFromMessage", () => {
   });
 
   test("step final (handoff=true) mas conversation JÁ está handled_by=human (handoff duplicado): não reatribui nem reposta o resumo", async () => {
-    const { sb, inserts, updates } = makeSupabase({ handledBy: "human" });
+    const { sb, inserts, updates } = makeSupabase({
+      handledBy: "human",
+      onboardingRow: { current_step: "files_status", answers: { name: "Maria" } },
+    });
 
     await advanceOnboardingFromMessage({
       supabase: sb,
       orgId: ORG_ID,
       conversationId: CONV_ID,
       agentId: "agent-1",
-      onboarding: { currentStepId: "files_status", answers: { name: "Maria" } },
       messageText: null,
       buttonReplyId: "sim_vetorizado",
     });
@@ -267,8 +348,28 @@ describe("advanceOnboardingFromMessage", () => {
     expect(assignOwnerAction.execute).not.toHaveBeenCalled();
     // Nenhuma mensagem de resumo (system) inserida — handoff já tinha rodado antes.
     expect(inserts.messages).toBeUndefined();
-    // Não reescreve handled_by nem contact rename de novo.
-    expect(updates.conversations).toBeUndefined();
+    // Não reescreve handled_by nem contact rename de novo — as únicas
+    // updates em `conversations` são as do lock (thinking/idle), nenhuma
+    // com handled_by.
+    expect(updates.conversations?.some((u) => "handled_by" in (u as object))).toBe(false);
     expect(updates.contacts).toBeUndefined();
+  });
+
+  test("onboarding já completado (fresh read dentro do lock) não reprocessa nem envia mensagem", async () => {
+    const { sb, inserts, updates } = makeSupabase({
+      onboardingRow: { current_step: "completed", answers: { name: "Maria" } },
+    });
+
+    await advanceOnboardingFromMessage({
+      supabase: sb,
+      orgId: ORG_ID,
+      conversationId: CONV_ID,
+      agentId: "agent-1",
+      messageText: "oi de novo",
+      buttonReplyId: null,
+    });
+
+    expect(inserts.messages).toBeUndefined();
+    expect(updates.conversation_onboarding).toBeUndefined();
   });
 });

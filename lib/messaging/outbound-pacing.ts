@@ -7,9 +7,9 @@
  * isso precisa virar um lock/fila distribuída.
  */
 
-const MIN_INTERVAL_MS = Number(process.env.WHATSAPP_SEND_MIN_INTERVAL_MS ?? 4000);
-const JITTER_MIN_MS = Number(process.env.WHATSAPP_SEND_JITTER_MIN_MS ?? 1500);
-const JITTER_MAX_MS = Number(process.env.WHATSAPP_SEND_JITTER_MAX_MS ?? 4500);
+const MIN_INTERVAL_MS = Number(process.env.WHATSAPP_SEND_MIN_INTERVAL_MS ?? 1200);
+const JITTER_MIN_MS = Number(process.env.WHATSAPP_SEND_JITTER_MIN_MS ?? 800);
+const JITTER_MAX_MS = Number(process.env.WHATSAPP_SEND_JITTER_MAX_MS ?? 2000);
 
 const channelQueues = new Map<string, Promise<number>>();
 
