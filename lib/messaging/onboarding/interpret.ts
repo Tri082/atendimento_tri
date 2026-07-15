@@ -58,6 +58,20 @@ export function isPureGreeting(text: string): boolean {
   return true;
 }
 
+/**
+ * Detecta se o texto parece uma mensagem de verdade (tem pelo menos uma
+ * palavra reconhecível) em vez de vazio/gibberish (ex: "???", "kkkkkkk",
+ * "123"). Usado pra distinguir "cliente disse algo coerente mas fora do que
+ * foi perguntado" (ex: "gostaria de fazer um pedido" quando ela pediu o
+ * nome) de "não deu pra entender nada" — no primeiro caso não faz sentido
+ * pedir desculpa com "não entendi", só reconhecer e redirecionar pra
+ * pergunta pendente. Puramente determinístico (sem LLM).
+ */
+export function looksLikeRealMessage(text: string): boolean {
+  const words = text.match(/\p{L}{2,}/gu) ?? [];
+  return words.some((w) => new Set(w.toLowerCase()).size > 1);
+}
+
 /** Matching determinístico — cobre tap de botão (que já manda o id/label
  * exato) e a maioria das respostas de texto livre óbvias. */
 export function matchChoiceByText(

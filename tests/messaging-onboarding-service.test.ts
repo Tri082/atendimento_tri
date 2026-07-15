@@ -19,7 +19,7 @@ vi.mock("@/lib/agent/rag/retrieve", () => ({
 
 import { processSendOutbound } from "@/lib/messaging/router";
 import { assignOwnerAction } from "@/lib/automations/actions/assign-owner";
-import { interpretChoiceAnswer } from "@/lib/messaging/onboarding/interpret";
+import { interpretChoiceAnswer, isCoherentTextAnswer } from "@/lib/messaging/onboarding/interpret";
 import { retrieveContext } from "@/lib/agent/rag/retrieve";
 import { advanceOnboardingFromMessage, startOnboarding } from "@/lib/messaging/onboarding/service";
 
@@ -182,7 +182,7 @@ describe("advanceOnboardingFromMessage", () => {
     expect(buttonsMsg.provider_metadata?.buttons).toHaveLength(2);
   });
 
-  test("cliente manda só saudação (ex: 'bom dia, tudo bem?') antes de responder: ignora em silêncio, sem nudge nem avanço", async () => {
+  test("cliente manda só saudação (ex: 'bom dia, tudo bem?') antes de responder: responde educadamente e repete a pergunta pendente, sem contar como tentativa", async () => {
     const { sb, inserts, updates } = makeSupabase({
       onboardingRow: { current_step: "greeting_name", answers: {} },
     });
@@ -196,8 +196,13 @@ describe("advanceOnboardingFromMessage", () => {
       buttonReplyId: null,
     });
 
-    expect(inserts.messages).toBeUndefined();
+    // Não conta como tentativa: nem step nem retry_count mudam.
     expect(updates.conversation_onboarding).toBeUndefined();
+    // Uma única mensagem: reconhecimento educado + a pergunta pendente.
+    expect(inserts.messages).toHaveLength(1);
+    const msg = inserts.messages?.[0] as { body: string };
+    expect(msg.body).toContain("com quem eu teclo?");
+    expect(msg.body.length).toBeGreaterThan("Bom dia, sou Trícia da TRI. Vou iniciar o seu atendimento tá? Me conta uma coisa, com quem eu teclo?".length);
   });
 
   test("step de choice com >3 opções manda texto numerado (sem provider_metadata.buttons)", async () => {
@@ -242,6 +247,49 @@ describe("advanceOnboardingFromMessage", () => {
     expect(inserts.messages).toHaveLength(1);
     const msg = inserts.messages?.[0] as { provider_metadata?: { buttons?: { id: string }[] } };
     expect(msg.provider_metadata?.buttons?.map((b) => b.id).sort()).toEqual(["nao", "sim"]);
+  });
+
+  test("resposta coerente mas fora do script (sem hit na KB): reconhece e redireciona, sem dizer 'não entendi'", async () => {
+    const { sb, updates, inserts } = makeSupabase({
+      onboardingRow: { current_step: "greeting_name", answers: {} },
+    });
+    (isCoherentTextAnswer as ReturnType<typeof vi.fn>).mockResolvedValueOnce(false);
+
+    await advanceOnboardingFromMessage({
+      supabase: sb,
+      orgId: ORG_ID,
+      conversationId: CONV_ID,
+      agentId: "agent-1",
+      messageText: "Gostaria de fazer um pedido",
+      buttonReplyId: null,
+    });
+
+    // Continua contando como tentativa sem entender de verdade (mesmo
+    // comportamento de antes pro contador de escalonamento).
+    expect(updates.conversation_onboarding?.[0]).toMatchObject({ retry_count: 1 });
+    expect(inserts.messages).toHaveLength(1);
+    const msg = inserts.messages?.[0] as { body: string };
+    expect(msg.body).not.toContain("Não entendi");
+    expect(msg.body).toContain("com quem eu teclo?");
+  });
+
+  test("resposta tipo gibberish (sem hit na KB): mantém o aviso 'não entendi'", async () => {
+    const { sb, inserts } = makeSupabase({
+      onboardingRow: { current_step: "greeting_name", answers: {} },
+    });
+    (isCoherentTextAnswer as ReturnType<typeof vi.fn>).mockResolvedValueOnce(false);
+
+    await advanceOnboardingFromMessage({
+      supabase: sb,
+      orgId: ORG_ID,
+      conversationId: CONV_ID,
+      agentId: "agent-1",
+      messageText: "kkkkkkk",
+      buttonReplyId: null,
+    });
+
+    const msg = inserts.messages?.[0] as { body: string };
+    expect(msg.body).toContain("Não entendi");
   });
 
   test("cliente foge do roteiro com pergunta que bate na KB: responde a KB e retoma a pergunta pendente", async () => {

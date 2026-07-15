@@ -6,7 +6,7 @@ import { assignOwnerAction } from "@/lib/automations/actions/assign-owner";
 import { retrieveContext } from "@/lib/agent/rag/retrieve";
 import { logError } from "@/lib/logger";
 import { processSendOutbound } from "@/lib/messaging/router";
-import { interpretChoiceAnswer, isCoherentTextAnswer, isPureGreeting } from "./interpret";
+import { interpretChoiceAnswer, isCoherentTextAnswer, isPureGreeting, looksLikeRealMessage } from "./interpret";
 import { advanceOnboarding, type OnboardingUserInput } from "./state-machine";
 import {
   MAX_BUTTON_OPTIONS,
@@ -91,6 +91,37 @@ async function withConversationLock<T>(
   }
 }
 
+// Cliente só cumprimentou ("bom dia", "tudo bem?") — reconhece educadamente
+// antes de repetir a pergunta pendente, em vez de ficar em silêncio (silêncio
+// total parecia deselegante/quebrado) ou de mandar exatamente o mesmo texto
+// sempre (padrão de conteúdo repetido em rajada, ver outbound-pacing.ts).
+const GREETING_REPLIES = [
+  "Tudo bem sim! 😊",
+  "Tudo certo por aqui! 😊",
+  "Tudo ótimo, obrigada! 😊",
+  "Bem sim! 😊",
+];
+
+function pickGreetingReply(): string {
+  return GREETING_REPLIES[Math.floor(Math.random() * GREETING_REPLIES.length)]!;
+}
+
+// Cliente disse algo coerente mas fora do que foi perguntado (ex: "gostaria
+// de fazer um pedido" quando ela pediu o nome) — reconhece e redireciona pra
+// pergunta pendente, SEM "não entendi": ela entendeu perfeitamente o que ele
+// disse, só que não é a resposta que precisa agora. "Não entendi" nesse caso
+// soa como se ela tivesse ignorado uma fala coerente do cliente.
+const OFF_TOPIC_ACK_REPLIES = [
+  "Show, já já chegamos lá!",
+  "Beleza, a gente chega nisso já já!",
+  "Combinado, só preciso de uma coisa antes:",
+  "Entendi! Só mais um passo antes disso:",
+];
+
+function pickOffTopicAck(): string {
+  return OFF_TOPIC_ACK_REPLIES[Math.floor(Math.random() * OFF_TOPIC_ACK_REPLIES.length)]!;
+}
+
 async function sendStepQuestion(params: {
   supabase: DB;
   orgId: string;
@@ -98,12 +129,21 @@ async function sendStepQuestion(params: {
   stepId: OnboardingStepId;
   answers: OnboardingAnswers;
   nudge?: boolean;
+  greetingAck?: boolean;
+  offTopicAck?: boolean;
 }): Promise<void> {
-  const { supabase, orgId, conversationId, stepId, answers, nudge } = params;
+  const { supabase, orgId, conversationId, stepId, answers, nudge, greetingAck, offTopicAck } = params;
   const stepDef = ONBOARDING_STEPS[stepId];
   const questionText = stepDef.question(answers);
 
-  let body = nudge ? `Não entendi bem sua resposta 🙏\n\n${questionText}` : questionText;
+  let body = questionText;
+  if (nudge) {
+    body = `Não entendi bem sua resposta 🙏\n\n${questionText}`;
+  } else if (greetingAck) {
+    body = `${pickGreetingReply()}\n\n${questionText}`;
+  } else if (offTopicAck) {
+    body = `${pickOffTopicAck()}\n\n${questionText}`;
+  }
   let providerMetadata: { buttons: { id: string; title: string }[] } | undefined;
 
   if (stepDef.kind === "choice" && stepDef.options) {
@@ -400,11 +440,18 @@ async function runOnboardingStep(params: {
   const retryCount = onboarding.retryCount;
 
   // Cliente só cumprimentou ("bom dia", "tudo bem?") sem responder de verdade
-  // ainda — não conta como tentativa nem gera nudge, só espera a próxima
-  // mensagem em silêncio. Sem isso, "bom dia, tudo bem?" batia como "não
-  // entendida" (ou pior, era aceita como se fosse a resposta) e confundia o
-  // cliente logo na saudação.
+  // ainda — não conta como tentativa (step e retry_count intactos), mas
+  // responde com um reconhecimento educado + repete a pergunta pendente, em
+  // vez de ficar em silêncio ou tratar a saudação como resposta errada.
   if (!buttonReplyId && messageText?.trim() && isPureGreeting(messageText)) {
+    await sendStepQuestion({
+      supabase,
+      orgId,
+      conversationId,
+      stepId: onboarding.currentStepId,
+      answers: onboarding.answers,
+      greetingAck: true,
+    });
     return;
   }
 
@@ -482,6 +529,12 @@ async function runOnboardingStep(params: {
       .eq("organization_id", orgId);
     if (retryUpdateError) logError("onboarding.retry-count-update", retryUpdateError);
 
+    // Cliente disse algo coerente (não gibberish) que só não bateu com o que
+    // foi pedido — reconhece e redireciona em vez de "não entendi", que soa
+    // como se a fala dele tivesse sido ignorada (ver looksLikeRealMessage).
+    const isCoherentButOffTopic =
+      !gotKbHit && Boolean(messageText?.trim()) && looksLikeRealMessage(messageText!.trim());
+
     // Reformula (reenvia a pergunta, com um aviso a partir da 1ª tentativa
     // sem entender) sem avançar o step — seja porque a resposta não bateu
     // com nenhuma opção, seja depois de responder uma pergunta fora do
@@ -492,7 +545,8 @@ async function runOnboardingStep(params: {
       conversationId,
       stepId: onboarding.currentStepId,
       answers: onboarding.answers,
-      nudge: newRetryCount > 0,
+      nudge: !isCoherentButOffTopic && newRetryCount > 0,
+      offTopicAck: isCoherentButOffTopic,
     });
     return;
   }

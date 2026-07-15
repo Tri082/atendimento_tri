@@ -7,7 +7,12 @@ vi.mock("ai", async (importOriginal) => {
 vi.mock("@/lib/llm", () => ({ getLanguageModel: vi.fn(() => "fake-model") }));
 
 import { generateObject } from "ai";
-import { matchChoiceByText, interpretChoiceAnswer, isPureGreeting } from "@/lib/messaging/onboarding/interpret";
+import {
+  matchChoiceByText,
+  interpretChoiceAnswer,
+  isPureGreeting,
+  looksLikeRealMessage,
+} from "@/lib/messaging/onboarding/interpret";
 
 const OPTIONS = [
   { id: "instagram", label: "Instagram" },
@@ -102,6 +107,32 @@ describe("isPureGreeting", () => {
   test("string vazia retorna false", () => {
     expect(isPureGreeting("")).toBe(false);
     expect(isPureGreeting("   ")).toBe(false);
+  });
+});
+
+describe("looksLikeRealMessage", () => {
+  test("frase coerente fora de contexto retorna true", () => {
+    expect(looksLikeRealMessage("Gostaria de fazer um pedido")).toBe(true);
+    expect(looksLikeRealMessage("Maria")).toBe(true);
+    expect(looksLikeRealMessage("qual o prazo de entrega?")).toBe(true);
+  });
+
+  test("string vazia ou só espaço retorna false", () => {
+    expect(looksLikeRealMessage("")).toBe(false);
+    expect(looksLikeRealMessage("   ")).toBe(false);
+  });
+
+  test("texto muito curto (1 letra) retorna false", () => {
+    expect(looksLikeRealMessage("a")).toBe(false);
+  });
+
+  test("só pontuação/número, sem palavra, retorna false", () => {
+    expect(looksLikeRealMessage("???")).toBe(false);
+    expect(looksLikeRealMessage("123")).toBe(false);
+  });
+
+  test("caractere único repetido (kkkk) retorna false", () => {
+    expect(looksLikeRealMessage("kkkkkkk")).toBe(false);
   });
 });
 
