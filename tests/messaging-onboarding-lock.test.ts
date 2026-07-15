@@ -5,10 +5,14 @@ vi.mock("@/lib/messaging/router", () => ({ processSendOutbound: vi.fn() }));
 vi.mock("@/lib/automations/actions/assign-owner", () => ({
   assignOwnerAction: { execute: vi.fn().mockResolvedValue({ assigned_to: "user-1" }) },
 }));
-vi.mock("@/lib/messaging/onboarding/interpret", () => ({
-  interpretChoiceAnswer: vi.fn(),
-  isCoherentTextAnswer: vi.fn().mockResolvedValue(false),
-}));
+vi.mock("@/lib/messaging/onboarding/interpret", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/messaging/onboarding/interpret")>();
+  return {
+    ...actual,
+    interpretChoiceAnswer: vi.fn(),
+    isCoherentTextAnswer: vi.fn().mockResolvedValue(false),
+  };
+});
 vi.mock("@/lib/agent/rag/retrieve", () => ({
   retrieveContext: vi.fn().mockResolvedValue([]),
 }));
@@ -96,13 +100,17 @@ describe("advanceOnboardingFromMessage — concorrência", () => {
   test("2 mensagens quase simultâneas na mesma conversa são serializadas (não leem estado desatualizado uma da outra)", async () => {
     const { sb, onboarding, messages } = makeRaceableSupabase();
 
+    // Não usar saudações puras aqui ("oi", "bom dia") — isPureGreeting as
+    // ignoraria em silêncio (ver messaging-onboarding-interpret.test.ts) e
+    // essa suíte quer testar especificamente a serialização do caminho de
+    // "resposta não reconhecida" (nudge + retry_count).
     await Promise.all([
       advanceOnboardingFromMessage({
         supabase: sb,
         orgId: ORG_ID,
         conversationId: CONV_ID,
         agentId: null,
-        messageText: "Oi",
+        messageText: "sei lá cara",
         buttonReplyId: null,
       }),
       advanceOnboardingFromMessage({
@@ -110,7 +118,7 @@ describe("advanceOnboardingFromMessage — concorrência", () => {
         orgId: ORG_ID,
         conversationId: CONV_ID,
         agentId: null,
-        messageText: "Bom dia",
+        messageText: "não sei explicar",
         buttonReplyId: null,
       }),
     ]);

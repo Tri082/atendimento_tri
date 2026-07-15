@@ -7,7 +7,7 @@ vi.mock("ai", async (importOriginal) => {
 vi.mock("@/lib/llm", () => ({ getLanguageModel: vi.fn(() => "fake-model") }));
 
 import { generateObject } from "ai";
-import { matchChoiceByText, interpretChoiceAnswer } from "@/lib/messaging/onboarding/interpret";
+import { matchChoiceByText, interpretChoiceAnswer, isPureGreeting } from "@/lib/messaging/onboarding/interpret";
 
 const OPTIONS = [
   { id: "instagram", label: "Instagram" },
@@ -70,6 +70,38 @@ describe("matchChoiceByText (first_order_check edge cases)", () => {
 
   test("casa 'nao' exata (label com acento)", () => {
     expect(matchChoiceByText(FIRST_ORDER_OPTIONS, "não")).toBe("nao");
+  });
+});
+
+describe("isPureGreeting", () => {
+  test("saudações simples retornam true", () => {
+    expect(isPureGreeting("Oi")).toBe(true);
+    expect(isPureGreeting("oi")).toBe(true);
+    expect(isPureGreeting("Olá")).toBe(true);
+    expect(isPureGreeting("Bom dia")).toBe(true);
+    expect(isPureGreeting("boa tarde")).toBe(true);
+    expect(isPureGreeting("Boa noite")).toBe(true);
+  });
+
+  test("combinação de saudações com pontuação retorna true", () => {
+    expect(isPureGreeting("Bom dia, tudo bem?")).toBe(true);
+    expect(isPureGreeting("Oi! Tudo bem?")).toBe(true);
+  });
+
+  test("saudação com conteúdo real junto retorna false", () => {
+    expect(isPureGreeting("Oi, meu nome é João")).toBe(false);
+    expect(isPureGreeting("Bom dia! Já deixou em loja")).toBe(false);
+  });
+
+  test("resposta real (nome, sim/não) retorna false", () => {
+    expect(isPureGreeting("Maria")).toBe(false);
+    expect(isPureGreeting("Sim")).toBe(false);
+    expect(isPureGreeting("não")).toBe(false);
+  });
+
+  test("string vazia retorna false", () => {
+    expect(isPureGreeting("")).toBe(false);
+    expect(isPureGreeting("   ")).toBe(false);
   });
 });
 

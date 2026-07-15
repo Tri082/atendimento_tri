@@ -11,6 +11,53 @@ function normalize(s: string): string {
     .toLowerCase();
 }
 
+const GREETING_BIGRAMS = new Set([
+  "bom dia",
+  "boa tarde",
+  "boa noite",
+  "tudo bem",
+  "como vai",
+  "e ai",
+]);
+
+const GREETING_WORDS = new Set(["oi", "ola", "opa", "oii", "eae", "salve", "hey", "hello"]);
+
+/**
+ * Detecta se o texto é SÓ saudação/papo educado (ex: "bom dia", "tudo bem?",
+ * "oi, tudo bem?") sem nenhuma resposta de verdade junto. Usado antes de
+ * interpretar a resposta de um step do onboarding — sem isso, um cliente que
+ * cumprimenta antes de responder ("bom dia, tudo bem?") recebia um "não
+ * entendi" na cara, porque nem "bom dia" nem "tudo bem" batem com nome/opção
+ * nenhuma. Puramente determinístico (sem LLM) — mais rápido e previsível que
+ * chamar o modelo pra isso.
+ */
+export function isPureGreeting(text: string): boolean {
+  const normalized = text
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const words = normalized.split(" ").filter(Boolean);
+  if (words.length === 0) return false;
+
+  let i = 0;
+  while (i < words.length) {
+    const bigram = i + 1 < words.length ? `${words[i]} ${words[i + 1]}` : "";
+    if (GREETING_BIGRAMS.has(bigram)) {
+      i += 2;
+      continue;
+    }
+    if (GREETING_WORDS.has(words[i]!)) {
+      i += 1;
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
 /** Matching determinístico — cobre tap de botão (que já manda o id/label
  * exato) e a maioria das respostas de texto livre óbvias. */
 export function matchChoiceByText(

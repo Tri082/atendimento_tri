@@ -5,10 +5,14 @@ vi.mock("@/lib/messaging/router", () => ({ processSendOutbound: vi.fn() }));
 vi.mock("@/lib/automations/actions/assign-owner", () => ({
   assignOwnerAction: { execute: vi.fn().mockResolvedValue({ assigned_to: "user-1" }) },
 }));
-vi.mock("@/lib/messaging/onboarding/interpret", () => ({
-  interpretChoiceAnswer: vi.fn(),
-  isCoherentTextAnswer: vi.fn().mockResolvedValue(true),
-}));
+vi.mock("@/lib/messaging/onboarding/interpret", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/messaging/onboarding/interpret")>();
+  return {
+    ...actual,
+    interpretChoiceAnswer: vi.fn(),
+    isCoherentTextAnswer: vi.fn().mockResolvedValue(true),
+  };
+});
 vi.mock("@/lib/agent/rag/retrieve", () => ({
   retrieveContext: vi.fn().mockResolvedValue([]),
 }));
@@ -176,6 +180,24 @@ describe("advanceOnboardingFromMessage", () => {
     );
     const buttonsMsg = inserts.messages?.[0] as { provider_metadata?: { buttons?: unknown[] } };
     expect(buttonsMsg.provider_metadata?.buttons).toHaveLength(2);
+  });
+
+  test("cliente manda só saudação (ex: 'bom dia, tudo bem?') antes de responder: ignora em silêncio, sem nudge nem avanço", async () => {
+    const { sb, inserts, updates } = makeSupabase({
+      onboardingRow: { current_step: "greeting_name", answers: {} },
+    });
+
+    await advanceOnboardingFromMessage({
+      supabase: sb,
+      orgId: ORG_ID,
+      conversationId: CONV_ID,
+      agentId: "agent-1",
+      messageText: "Bom dia, tudo bem?",
+      buttonReplyId: null,
+    });
+
+    expect(inserts.messages).toBeUndefined();
+    expect(updates.conversation_onboarding).toBeUndefined();
   });
 
   test("step de choice com >3 opções manda texto numerado (sem provider_metadata.buttons)", async () => {

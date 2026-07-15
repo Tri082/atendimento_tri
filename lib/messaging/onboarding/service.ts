@@ -6,7 +6,7 @@ import { assignOwnerAction } from "@/lib/automations/actions/assign-owner";
 import { retrieveContext } from "@/lib/agent/rag/retrieve";
 import { logError } from "@/lib/logger";
 import { processSendOutbound } from "@/lib/messaging/router";
-import { interpretChoiceAnswer, isCoherentTextAnswer } from "./interpret";
+import { interpretChoiceAnswer, isCoherentTextAnswer, isPureGreeting } from "./interpret";
 import { advanceOnboarding, type OnboardingUserInput } from "./state-machine";
 import {
   MAX_BUTTON_OPTIONS,
@@ -398,6 +398,15 @@ async function runOnboardingStep(params: {
   const { supabase, orgId, conversationId, agentId, onboarding, messageText, buttonReplyId } = params;
   const stepDef = ONBOARDING_STEPS[onboarding.currentStepId];
   const retryCount = onboarding.retryCount;
+
+  // Cliente só cumprimentou ("bom dia", "tudo bem?") sem responder de verdade
+  // ainda — não conta como tentativa nem gera nudge, só espera a próxima
+  // mensagem em silêncio. Sem isso, "bom dia, tudo bem?" batia como "não
+  // entendida" (ou pior, era aceita como se fosse a resposta) e confundia o
+  // cliente logo na saudação.
+  if (!buttonReplyId && messageText?.trim() && isPureGreeting(messageText)) {
+    return;
+  }
 
   let input: OnboardingUserInput | null = null;
 
