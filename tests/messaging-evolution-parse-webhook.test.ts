@@ -149,6 +149,40 @@ describe("parseWebhook — mensagens", () => {
   });
 });
 
+describe("parseWebhook — mensagens de grupo", () => {
+  test("messages.upsert de grupo (@g.us) retorna [] (Trícia ignora grupos)", () => {
+    const groupPayload = {
+      event: "messages.upsert",
+      instance: "minha-empresa",
+      data: {
+        key: {
+          remoteJid: "120363012345678901@g.us",
+          fromMe: false,
+          id: "GROUP-MSG-1",
+        },
+        pushName: "João",
+        message: { conversation: "Alguém viu o pedido 123?" },
+        messageType: "conversation",
+        messageTimestamp: 1717440000,
+      },
+    };
+    expect(parseWebhook(groupPayload)).toEqual([]);
+  });
+
+  test("messages.update de grupo (@g.us) retorna []", () => {
+    const groupStatusPayload = {
+      event: "messages.update",
+      instance: "minha-empresa",
+      data: {
+        keyId: "GROUP-MSG-1",
+        status: 2,
+        remoteJid: "120363012345678901@g.us",
+      },
+    };
+    expect(parseWebhook(groupStatusPayload)).toEqual([]);
+  });
+});
+
 describe("parseWebhook — robustez", () => {
   test("payload null retorna []", () => {
     expect(parseWebhook(null)).toEqual([]);

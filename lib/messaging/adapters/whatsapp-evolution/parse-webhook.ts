@@ -1,5 +1,5 @@
 import type { NormalizedEvent, NormalizedMediaAttachment } from "@/lib/messaging/adapter";
-import { isoFromUnixSeconds, jidToPhone } from "./extract-message";
+import { isGroupJid, isoFromUnixSeconds, jidToPhone } from "./extract-message";
 
 type Payload = {
   event?: string;
@@ -50,6 +50,11 @@ function parseMessageUpsert(payload: Payload): NormalizedEvent[] {
   const externalMessageId = typeof key?.id === "string" ? key.id : null;
   const fromMe = key?.fromMe === true;
   if (!remoteJid || !externalMessageId) return [];
+  // Mensagens de grupo (JID termina em @g.us) são sempre ignoradas — a
+  // Trícia não deve responder em grupos onde é membro (ver conversation.created
+  // no router: cada grupo viraria uma "conversa" com todos os participantes
+  // misturados, o que não faz sentido pro CRM).
+  if (isGroupJid(remoteJid)) return [];
   // Nota: NÃO filtramos fromMe aqui. Quando o app envia, o INSERT no router
   // colide com a UNIQUE(conversation_id, external_id) e é silenciosamente
   // ignorado (idempotência). Quando o humano responde pelo WhatsApp do
@@ -93,6 +98,7 @@ function parseMessageUpdate(payload: Payload): NormalizedEvent[] {
   const remoteJid = typeof data.remoteJid === "string" ? data.remoteJid : "";
   const status = typeof data.status === "number" ? data.status : null;
   if (!keyId || status === null) return [];
+  if (remoteJid && isGroupJid(remoteJid)) return [];
 
   let value: "sent" | "delivered" | "read" | "failed";
   if (status === 2) value = "delivered";

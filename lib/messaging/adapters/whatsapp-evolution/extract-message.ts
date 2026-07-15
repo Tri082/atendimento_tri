@@ -9,6 +9,10 @@ export function jidToPhone(jid: string): string {
   return cleaned.startsWith("+") ? cleaned : `+${cleaned}`;
 }
 
+export function isGroupJid(jid: string): boolean {
+  return jid.endsWith("@g.us");
+}
+
 export function mimeToMediaType(mime: string): "image" | "video" | "audio" | "document" {
   if (!mime) return "document";
   if (mime.startsWith("image/")) return "image";

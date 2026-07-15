@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   extractFilename,
+  isGroupJid,
   isoFromUnixSeconds,
   jidToPhone,
   mimeToMediaType,
@@ -66,6 +67,21 @@ describe("extractFilename", () => {
   });
   test("URL inválida retorna null", () => {
     expect(extractFilename("não é url")).toBe(null);
+  });
+});
+
+describe("isGroupJid", () => {
+  test("JID de grupo (@g.us) retorna true", () => {
+    expect(isGroupJid("120363012345678901@g.us")).toBe(true);
+  });
+  test("JID de contato individual (@s.whatsapp.net) retorna false", () => {
+    expect(isGroupJid("5511999990000@s.whatsapp.net")).toBe(false);
+  });
+  test("JID @lid retorna false", () => {
+    expect(isGroupJid("5511999990000@lid")).toBe(false);
+  });
+  test("string vazia retorna false", () => {
+    expect(isGroupJid("")).toBe(false);
   });
 });
 
