@@ -400,6 +400,78 @@ describe("advanceOnboardingFromMessage", () => {
     );
   });
 
+  test("cliente clica 'não sei o que é vetorizado' e a KB tem explicação: manda a explicação e repete a mesma pergunta, sem escalar ainda", async () => {
+    const { sb, inserts, updates } = makeSupabase({
+      onboardingRow: { current_step: "files_status", answers: { name: "Maria" } },
+    });
+    (retrieveContext as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { kind: "faq", source_id: "faq-1", title: "Vetorização", content: "Arquivo vetorizado é...", similarity: 0.9 },
+    ]);
+
+    await advanceOnboardingFromMessage({
+      supabase: sb,
+      orgId: ORG_ID,
+      conversationId: CONV_ID,
+      agentId: "agent-1",
+      messageText: null,
+      buttonReplyId: "nao_sei_vetorizado",
+    });
+
+    expect(retrieveContext).toHaveBeenCalledWith("agent-1", "o que é um arquivo vetorizado", 1);
+    // Não avança nem escala: current_step continua files_status.
+    expect(updates.conversation_onboarding?.[0]).toMatchObject({ retry_count: 1 });
+    expect(updates.conversations?.some((u) => "handled_by" in (u as object))).toBe(false);
+    // 2 mensagens: a explicação da KB, seguida da mesma pergunta de novo.
+    expect(inserts.messages).toHaveLength(2);
+    expect((inserts.messages?.[0] as { body: string }).body).toBe("Arquivo vetorizado é...");
+    const secondMsg = inserts.messages?.[1] as { body: string };
+    expect(secondMsg.body).toContain("vetorizados?");
+  });
+
+  test("cliente já esgotou as tentativas de explicação (retry_count >= MAX_STEP_RETRIES) e clica 'não sei' de novo: escala pro humano em vez de explicar de novo", async () => {
+    const { sb, updates } = makeSupabase({
+      onboardingRow: { current_step: "files_status", answers: { name: "Maria" }, retry_count: 2 },
+    });
+
+    await advanceOnboardingFromMessage({
+      supabase: sb,
+      orgId: ORG_ID,
+      conversationId: CONV_ID,
+      agentId: "agent-1",
+      messageText: null,
+      buttonReplyId: "nao_sei_vetorizado",
+    });
+
+    expect(retrieveContext).not.toHaveBeenCalled();
+    expect(updates.conversation_onboarding?.[0]).toMatchObject({ current_step: "completed" });
+    const handoffUpdate = updates.conversations?.find(
+      (u): u is { handled_by: string } => (u as { handled_by?: string }).handled_by === "human",
+    );
+    expect(handoffUpdate).toMatchObject({ handled_by: "human" });
+  });
+
+  test("cliente clica 'não sei' mas a KB não tem explicação cadastrada: escala pro humano (comportamento padrão)", async () => {
+    const { sb, updates } = makeSupabase({
+      onboardingRow: { current_step: "files_status", answers: { name: "Maria" } },
+    });
+    (retrieveContext as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    await advanceOnboardingFromMessage({
+      supabase: sb,
+      orgId: ORG_ID,
+      conversationId: CONV_ID,
+      agentId: "agent-1",
+      messageText: null,
+      buttonReplyId: "nao_sei_vetorizado",
+    });
+
+    expect(updates.conversation_onboarding?.[0]).toMatchObject({ current_step: "completed" });
+    const handoffUpdate = updates.conversations?.find(
+      (u): u is { handled_by: string } => (u as { handled_by?: string }).handled_by === "human",
+    );
+    expect(handoffUpdate).toMatchObject({ handled_by: "human" });
+  });
+
   test("step final (handoff=true) mas conversation JÁ está handled_by=human (handoff duplicado): não reatribui nem reposta o resumo", async () => {
     const { sb, inserts, updates } = makeSupabase({
       handledBy: "human",

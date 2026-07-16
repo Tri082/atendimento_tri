@@ -472,6 +472,60 @@ async function runOnboardingStep(params: {
     }
   }
 
+  // Cliente clicou "Não sei o que é um arquivo vetorizado" — isso É uma
+  // opção válida do step (advanceOnboarding fecharia pro humano direto), mas
+  // antes de escalar vale explicar o conceito puxando da base de
+  // conhecimento, pra dar chance do cliente responder com mais clareza.
+  // Reusa o mesmo teto de tentativas do fallback de "fuga do roteiro" acima
+  // pra não ficar reexplicando pra sempre se o cliente insistir em "não sei".
+  if (
+    onboarding.currentStepId === "files_status" &&
+    input?.kind === "button" &&
+    input.optionId === "nao_sei_vetorizado" &&
+    retryCount < MAX_STEP_RETRIES
+  ) {
+    const hits = agentId ? await retrieveContext(agentId, "o que é um arquivo vetorizado", 1) : [];
+    const topHit = hits[0];
+
+    if (topHit) {
+      const { data: kbMsg, error: kbErr } = await supabase
+        .from("messages")
+        .insert({
+          organization_id: orgId,
+          conversation_id: conversationId,
+          direction: "outbound",
+          sender_kind: "bot",
+          body: topHit.content,
+          status: "sending",
+        })
+        .select("id")
+        .single();
+      if (kbErr || !kbMsg) {
+        logError("onboarding.files-status-explain", kbErr ?? new Error("insert failed"));
+      } else {
+        after(() => processSendOutbound(kbMsg.id));
+      }
+
+      const { error: retryUpdateError } = await supabase
+        .from("conversation_onboarding")
+        .update({ retry_count: retryCount + 1 })
+        .eq("conversation_id", conversationId)
+        .eq("organization_id", orgId);
+      if (retryUpdateError) logError("onboarding.retry-count-update", retryUpdateError);
+
+      await sendStepQuestion({
+        supabase,
+        orgId,
+        conversationId,
+        stepId: "files_status",
+        answers: onboarding.answers,
+      });
+      return;
+    }
+    // Sem hit na base de conhecimento: segue pro comportamento padrão abaixo
+    // (avança e escala pro humano), já que não tem o que explicar.
+  }
+
   const result = input
     ? advanceOnboarding(onboarding.currentStepId, input, onboarding.answers)
     : { ok: false as const };
