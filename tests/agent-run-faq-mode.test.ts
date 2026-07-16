@@ -130,6 +130,29 @@ describe("runAgent — modo FAQ-only pós-handoff", () => {
     expect(sentMessage.body.startsWith("{")).toBe(false);
   });
 
+  test("resposta do modelo vem com JSON dos argumentos da tool colado antes da resposta real: remove o prefixo e manda só a resposta", async () => {
+    // Comportamento observado em produção: o modelo às vezes "vaza" os
+    // argumentos da tool call (ex: {"query":"..."}) como texto visível,
+    // colado sem separador antes da resposta de verdade. Diferente do caso
+    // de JSON puro (teste acima), aqui HÁ uma resposta válida depois — não
+    // deve escalar, só limpar o prefixo.
+    (generateText as ReturnType<typeof vi.fn>).mockResolvedValue({
+      text: '{"query":"pedido mínimo 30 peças tecidos personalização"}Bora sim — a TRI trabalha com pedido mínimo de 30 peças.',
+      usage: { inputTokens: 10, outputTokens: 10 },
+      steps: [],
+    });
+    const capture = { inserts: {} as Record<string, unknown[]>, updates: {} as Record<string, unknown[]> };
+    mockedCreate.mockReturnValue(buildSupabase(null, capture));
+
+    await runAgent({ orgId: "org-1", agentId: "agent-1", conversationId: "conv-1" });
+
+    // Não escala — a resposta depois do JSON é válida.
+    expect(capture.updates.conversations).toBeUndefined();
+    expect(capture.inserts.tasks).toBeUndefined();
+    const sentMessage = capture.inserts.messages?.[0] as { body: string };
+    expect(sentMessage.body).toBe("Bora sim — a TRI trabalha com pedido mínimo de 30 peças.");
+  });
+
   test("escalate_to_human chamada no turno: não insere/manda segunda mensagem do texto do modelo", async () => {
     // A tool escalate_to_human já manda sua própria mensagem determinística
     // pro cliente (lib/agent/tools/escalate.ts). Se o modelo, mesmo assim,

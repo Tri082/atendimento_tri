@@ -31,6 +31,48 @@ function looksLikeRawStructuredOutput(text: string): boolean {
   }
 }
 
+/**
+ * Variante do vazamento acima: o modelo cola os argumentos de uma tool call
+ * (ex: {"query":"..."}) direto na frente da resposta real, sem separador.
+ * Diferente do caso "texto inteiro é JSON" (só isso, sem resposta pra
+ * salvar — aí escalamos), aqui HÁ uma resposta válida na sequência, então só
+ * removemos o prefixo em vez de jogar fora a resposta inteira.
+ */
+function stripLeadingToolCallJson(text: string): string {
+  if (!text.startsWith("{")) return text;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        const candidate = text.slice(0, i + 1);
+        const rest = text.slice(i + 1).trim();
+        if (!rest) return text; // sem resposta real depois — deixa pro looksLikeRawStructuredOutput tratar
+        try {
+          JSON.parse(candidate);
+          return rest;
+        } catch {
+          return text;
+        }
+      }
+    }
+  }
+  return text;
+}
+
 interface RunContext {
   orgId: string;
   agentId: string;
@@ -156,6 +198,17 @@ export async function runAgent({ orgId, agentId, conversationId }: RunContext): 
     });
 
     let responseText = result.text?.trim();
+
+    if (responseText) {
+      const stripped = stripLeadingToolCallJson(responseText);
+      if (stripped !== responseText) {
+        logError(
+          "agent.run.leaked-tool-call-json-prefix",
+          new Error(`Modelo colou argumentos de tool call antes da resposta real (prefixo removido): ${responseText.slice(0, 300)}`),
+        );
+        responseText = stripped;
+      }
+    }
 
     if (responseText && looksLikeRawStructuredOutput(responseText)) {
       logError(
